@@ -323,6 +323,38 @@ async function startServer() {
     }
   });
 
+  app.put("/api/fees/:id", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const feeId = toNumber(req.params.id);
+      const updatedAmount = toNumber(req.body.amount);
+
+      const fee = await Fee.findOneAndUpdate(
+        { id: feeId },
+        { amount: updatedAmount },
+        { returnDocument: "after" }
+      ).lean();
+
+      if (!fee) {
+        return res.status(404).json({ error: "Fee not found" });
+      }
+
+      const transactionId = await getNextSequence("transactions");
+      await Transaction.create({
+        id: transactionId,
+        student_id: fee.student_id,
+        amount: updatedAmount,
+        type: "update",
+        category: "fee-adjustment",
+        date: dateString(),
+        description: `Fee amount manually adjusted: ${fee.type}`,
+      });
+
+      res.json({ success: true, fee });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/classes", authenticateToken, async (_req, res) => {
     const classes = await ClassModel.find().sort({ id: 1 }).lean();
     res.json(classes.map((item) => stripMongoFields(item)));
@@ -352,6 +384,39 @@ async function startServer() {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
+  });
+
+  app.put("/api/subjects/:id", authenticateToken, async (req, res) => {
+    try {
+      const updated = await Subject.findOneAndUpdate(
+        { id: toNumber(req.params.id) },
+        {
+          name: req.body.name,
+          class_id: toNumber(req.body.class_id),
+        },
+        { returnDocument: "after", runValidators: true },
+      ).lean();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Subject not found" });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/subjects/:id", authenticateToken, async (req, res) => {
+    const subjectId = toNumber(req.params.id);
+    const deleted = await Subject.findOneAndDelete({ id: subjectId }).lean();
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Subject not found" });
+    }
+
+    await Mark.deleteMany({ subject_id: subjectId });
+    res.json({ success: true });
   });
 
   app.get("/api/exams", authenticateToken, async (_req, res) => {
@@ -406,21 +471,42 @@ async function startServer() {
         return res.status(400).json({ error: "No marks provided" });
       }
 
-      const docs = [];
+      let count = 0;
       for (const entry of entries) {
-        const id = await getNextSequence("marks");
-        docs.push({
-          id,
-          student_id: toNumber(entry.student_id),
-          exam_id: toNumber(entry.exam_id),
-          subject_id: toNumber(entry.subject_id),
-          marks_obtained: toNumber(entry.marks_obtained),
-          max_marks: toNumber(entry.max_marks),
-        });
+        const studentId = toNumber(entry.student_id);
+        const examId = toNumber(entry.exam_id);
+        const subjectId = toNumber(entry.subject_id);
+
+        const existing = await Mark.findOne({
+          student_id: studentId,
+          exam_id: examId,
+          subject_id: subjectId,
+        }).lean();
+
+        if (existing) {
+          await Mark.updateOne(
+            { id: existing.id },
+            {
+              marks_obtained: toNumber(entry.marks_obtained),
+              max_marks: toNumber(entry.max_marks),
+            },
+          );
+        } else {
+          const id = await getNextSequence("marks");
+          await Mark.create({
+            id,
+            student_id: studentId,
+            exam_id: examId,
+            subject_id: subjectId,
+            marks_obtained: toNumber(entry.marks_obtained),
+            max_marks: toNumber(entry.max_marks),
+          });
+        }
+
+        count += 1;
       }
 
-      await Mark.insertMany(docs);
-      res.json({ success: true, count: docs.length });
+      res.json({ success: true, count });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -428,9 +514,13 @@ async function startServer() {
 
   app.get("/api/marks", authenticateToken, async (req, res) => {
     const examId = toNumber(req.query.exam_id);
+    const studentId = toNumber(req.query.student_id);
     const filters: Record<string, unknown> = {};
     if (examId) {
       filters.exam_id = examId;
+    }
+    if (studentId) {
+      filters.student_id = studentId;
     }
 
     const [marks, students, subjects, exams] = await Promise.all([

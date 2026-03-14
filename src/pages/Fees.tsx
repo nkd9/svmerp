@@ -17,9 +17,14 @@ const formatReceiptDateTime = (date: string) => {
 
 export default function Fees() {
   const { user } = useAuth();
+  console.log("DEBUG: Current User Data ->", user);
+
   const [fees, setFees] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingFee, setEditingFee] = useState<any | null>(null);
+  const [editFormData, setEditFormData] = useState({ amount: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [formData, setFormData] = useState({
@@ -88,6 +93,39 @@ export default function Fees() {
         bill_no: `BILL-${Date.now()}`
       });
     }
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (user?.role !== 'admin' || !editingFee) {
+      alert('Only admin can modify financial information.');
+      return;
+    }
+    
+    const res = await fetch(`/api/fees/${editingFee.id}`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ amount: editFormData.amount })
+    });
+    
+    if (res.ok) {
+      setIsEditModalOpen(false);
+      setEditingFee(null);
+      fetchData();
+      alert('Fee updated successfully');
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to update fee');
+    }
+  };
+
+  const openEditModal = (fee: any) => {
+    setEditingFee(fee);
+    setEditFormData({ amount: String(fee.amount) });
+    setIsEditModalOpen(true);
   };
 
   const filteredFees = useMemo(() => {
@@ -385,6 +423,9 @@ export default function Fees() {
                 <th className="px-6 py-4 font-semibold">Amount</th>
                 <th className="px-6 py-4 font-semibold">Date</th>
                 <th className="px-6 py-4 font-semibold">Status</th>
+                {user?.role === 'admin' && (
+                  <th className="px-6 py-4 font-semibold text-center">Edit</th>
+                )}
                 <th className="px-6 py-4 font-semibold text-right">Receipt</th>
               </tr>
             </thead>
@@ -403,6 +444,16 @@ export default function Fees() {
                       {fee.status}
                     </span>
                   </td>
+                  {user?.role === 'admin' && (
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => openEditModal(fee)}
+                        className="p-2 hover:bg-slate-100 hover:shadow-sm rounded-lg text-emerald-600 transition-all font-medium text-xs border border-emerald-100 bg-emerald-50"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  )}
                   <td className="px-6 py-4 text-right">
                     <button
                       onClick={() => handlePrintReceipt(fee)}
@@ -415,7 +466,7 @@ export default function Fees() {
               ))}
               {filteredFees.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={user?.role === 'admin' ? 8 : 7} className="px-6 py-10 text-center text-sm text-slate-500">
                     No fee records match your search.
                   </td>
                 </tr>
@@ -605,6 +656,57 @@ export default function Fees() {
                   className="inline-flex w-full items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-all hover:bg-indigo-700 shadow-lg shadow-indigo-200"
                 >
                   Save and Print
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isEditModalOpen && editingFee && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[65] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-slate-900">Edit Fee Amount</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <Plus className="w-6 h-6 rotate-45 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="space-y-6 p-6">
+              <div className="space-y-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Student:</span>
+                  <span className="font-semibold text-slate-900">{editingFee.student_name}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Bill No:</span>
+                  <span className="font-semibold text-slate-900">{editingFee.bill_no}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Fee Type:</span>
+                  <span className="font-semibold text-slate-900">{editingFee.type}</span>
+                </div>
+                <div className="space-y-2 pt-4 border-t border-slate-100">
+                  <label className="text-sm font-semibold text-slate-700">Update Amount <span className="text-rose-500">*</span></label>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                    <input
+                      required
+                      type="number"
+                      min="0"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-11 pr-4 text-slate-900 font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                      value={editFormData.amount}
+                      onChange={(e) => setEditFormData({ amount: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white transition-all hover:bg-emerald-700 shadow-lg shadow-emerald-200"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

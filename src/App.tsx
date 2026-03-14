@@ -8,10 +8,11 @@ import Students from './pages/Students';
 import Fees from './pages/Fees';
 import FeeReports from './pages/FeeReports';
 import Exams from './pages/Exams';
-import Hostel from './pages/Hostel';
-import Attendance from './pages/Attendance';
-import Medical from './pages/Medical';
-import FoodWallet from './pages/FoodWallet';
+import SubjectMaster from './pages/SubjectMaster';
+// import Hostel from './pages/Hostel';
+// import Attendance from './pages/Attendance';
+// import Medical from './pages/Medical';
+// import FoodWallet from './pages/FoodWallet';
 
 import Reports from './pages/Reports';
 import AdminSettings from './pages/AdminSettings';
@@ -62,6 +63,13 @@ export default function App() {
               </Layout>
             </PrivateRoute>
           } />
+          <Route path="/exams/subjects" element={
+            <PrivateRoute>
+              <Layout>
+                <SubjectMaster />
+              </Layout>
+            </PrivateRoute>
+          } />
           <Route path="/fees" element={
             <PrivateRoute>
               <Layout>
@@ -77,34 +85,34 @@ export default function App() {
             </PrivateRoute>
           } />
           
-          <Route path="/hostel" element={
+          {/* <Route path="/hostel" element={
             <PrivateRoute>
               <Layout>
                 <Hostel />
               </Layout>
             </PrivateRoute>
-          } />
-          <Route path="/attendance" element={
+          } /> */}
+          {/* <Route path="/attendance" element={
             <PrivateRoute>
               <Layout>
                 <Attendance />
               </Layout>
             </PrivateRoute>
-          } />
-          <Route path="/medical" element={
+          } /> */}
+          {/* <Route path="/medical" element={
             <PrivateRoute>
               <Layout>
                 <Medical />
               </Layout>
             </PrivateRoute>
-          } />
-          <Route path="/food-wallet" element={
+          } /> */}
+          {/* <Route path="/food-wallet" element={
             <PrivateRoute>
               <Layout>
                 <FoodWallet />
               </Layout>
             </PrivateRoute>
-          } />
+          } /> */}
           <Route path="/reports" element={
             <PrivateRoute>
               <Layout>

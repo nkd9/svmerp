@@ -1,17 +1,15 @@
 services:
   - type: web
-    name: svm-classes-erp
+    name: eduflow-erp
     env: node
-    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm run start
-    autoDeploy: true
     envVars:
-      - key: NODE_VERSION
-        value: 22
+      - key: PORT
+        value: 10000
       - key: NODE_ENV
         value: production
       - key: MONGODB_URI
-        sync: false
+        sync: false # Set this manually in the Render dashboard!
       - key: JWT_SECRET
-        sync: false
+        generateValue: true

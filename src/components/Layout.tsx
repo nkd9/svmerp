@@ -4,23 +4,21 @@ import {
   Users, 
   CreditCard, 
   BookOpen, 
-  Home, 
-  Calendar, 
-  Stethoscope, 
-  Wallet,
+  // Home, 
+  // Calendar, 
+  // Stethoscope, 
+  // Wallet,
   FileText,
   Settings,
   LogOut,
-  ChevronRight,
   Menu,
-  X,
   Bell,
   Search,
   User as UserIcon
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -33,10 +31,10 @@ const sidebarItems = [
   { name: 'Student Admission', icon: Users, path: '/students' },
   { name: 'Exams', icon: BookOpen, path: '/exams' },
   { name: 'Fees', icon: CreditCard, path: '/fees' },
-  { name: 'Hostel', icon: Home, path: '/hostel' },
-  { name: 'Attendance', icon: Calendar, path: '/attendance' },
-  { name: 'Medical', icon: Stethoscope, path: '/medical' },
-  { name: 'Food Wallet', icon: Wallet, path: '/food-wallet' },
+  // { name: 'Hostel', icon: Home, path: '/hostel' },
+  // { name: 'Attendance', icon: Calendar, path: '/attendance' },
+  // { name: 'Medical', icon: Stethoscope, path: '/medical' },
+  // { name: 'Food Wallet', icon: Wallet, path: '/food-wallet' },
   { name: 'Reports', icon: FileText, path: '/reports' },
   { name: 'Admin Settings', icon: Settings, path: '/admin-settings', adminOnly: true },
 ];
