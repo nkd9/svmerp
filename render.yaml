@@ -1,6 +1,7 @@
 services:
   - type: web
     name: eduflow-erp
+    plan: free
     env: node
     buildCommand: npm install && npm run build
     startCommand: npm run start
