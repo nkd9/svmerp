@@ -25,8 +25,12 @@ import {
   getNextSequence,
 } from "./server/models.ts";
 
-dotenv.config({ path: ".env.local" });
-dotenv.config();
+try {
+  dotenv.config({ path: ".env.local" });
+  dotenv.config();
+} catch (e) {
+  console.log("Dotenv load skipped or failed - relying on system environment variables.");
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key";
 const PORT = Number(process.env.PORT || 3000);
