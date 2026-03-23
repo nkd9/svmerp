@@ -109,7 +109,15 @@ const examSchema = new Schema(
     name: { type: String, required: true, trim: true },
     date: { type: String, required: true },
     class_id: { type: Number, required: true },
-    full_marks: { type: Number, default: 100 },
+    subject_max_marks: {
+      type: [
+        {
+          subject_id: { type: Number, required: true },
+          max_marks: { type: Number, required: true },
+        },
+      ],
+      default: [],
+    },
   },
   schemaOptions,
 );

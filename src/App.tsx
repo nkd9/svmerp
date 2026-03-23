@@ -84,7 +84,6 @@ export default function App() {
               </Layout>
             </PrivateRoute>
           } />
-          
           {/* <Route path="/hostel" element={
             <PrivateRoute>
               <Layout>

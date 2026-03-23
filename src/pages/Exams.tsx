@@ -62,11 +62,19 @@ export default function Exams() {
   const [loading, setLoading] = useState(true);
   
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
+  const [isEditExamModalOpen, setIsEditExamModalOpen] = useState(false);
   const [isMarkModalOpen, setIsMarkModalOpen] = useState(false);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [selectedExamForResults, setSelectedExamForResults] = useState<any | null>(null);
+  const [selectedExamForEdit, setSelectedExamForEdit] = useState<any | null>(null);
+  const [examListClassId, setExamListClassId] = useState('');
   
-  const [examForm, setExamForm] = useState({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', full_marks: '100' });
+  const [examForm, setExamForm] = useState<{
+    name: string;
+    date: string;
+    class_id: string;
+    subject_max_marks: { subject_id: number; max_marks: number }[];
+  }>({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', subject_max_marks: [] });
   const [markForm, setMarkForm] = useState({ class_id: '', student_id: '', exam_id: '' });
   const [studentSearch, setStudentSearch] = useState('');
   const [subjectMarks, setSubjectMarks] = useState<Record<number, { marks_obtained: string; max_marks: string }>>({});
@@ -119,9 +127,65 @@ export default function Exams() {
     if (res.ok) {
       setIsExamModalOpen(false);
       fetchData();
-      setExamForm({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', full_marks: '100' });
+      setExamForm({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', subject_max_marks: [] });
     }
   };
+
+  const handleUpdateExam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedExamForEdit) return;
+
+    const res = await fetch(`/api/exams/${selectedExamForEdit.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(examForm)
+    });
+
+    if (res.ok) {
+      setIsEditExamModalOpen(false);
+      fetchData();
+      setExamForm({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', subject_max_marks: [] });
+      setSelectedExamForEdit(null);
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to update exam');
+    }
+  };
+
+  const handleDeleteExam = async (exam: any) => {
+    if (!window.confirm(`Are you sure you want to delete the exam "${exam.name}"? This will also delete all marks associated with this exam.`)) {
+      return;
+    }
+
+    const res = await fetch(`/api/exams/${exam.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    if (res.ok) {
+      fetchData();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to delete exam');
+    }
+  };
+
+  const openEditExamModal = (exam: any) => {
+    setSelectedExamForEdit(exam);
+    setExamForm({
+      name: exam.name || '',
+      date: exam.date || format(new Date(), 'yyyy-MM-dd'),
+      class_id: String(exam.class_id || ''),
+      subject_max_marks: exam.subject_max_marks || []
+    });
+    setIsEditExamModalOpen(true);
+  };
+
 
   const handleEnterMarks = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,15 +233,26 @@ export default function Exams() {
   };
 
   const selectedClassId = Number(markForm.class_id);
-  const selectedExam = exams.find((exam) => String(exam.id) === markForm.exam_id);
+  const selectedExam = useMemo(() => {
+    return exams.find((e) => String(e.id) === markForm.exam_id);
+  }, [markForm.exam_id, exams]);
+
   const filteredExams = useMemo(
     () => (selectedClassId ? exams.filter((exam) => exam.class_id === selectedClassId) : []),
     [exams, selectedClassId],
   );
-  const filteredSubjects = useMemo(
-    () => (selectedClassId ? subjects.filter((subject) => subject.class_id === selectedClassId) : []),
-    [subjects, selectedClassId],
-  );
+  
+  const filteredSubjects = useMemo(() => {
+    if (!markForm.class_id) return [];
+    return subjects.filter((s) => String(s.class_id) === markForm.class_id);
+  }, [markForm.class_id, subjects]);
+
+  const getSubjectMaxMarks = (subjectId: number) => {
+    if (!selectedExam || !selectedExam.subject_max_marks) return 100;
+    const found = selectedExam.subject_max_marks.find((sm: any) => sm.subject_id === subjectId);
+    return found ? found.max_marks : 100;
+  };
+
   const filteredStudents = useMemo(
     () => (selectedClassId ? students.filter((student) => student.class_id === selectedClassId) : []),
     [students, selectedClassId],
@@ -259,6 +334,36 @@ export default function Exams() {
     return student.name.toLowerCase().includes(query) || student.reg_no.toLowerCase().includes(query);
   });
   const classMap = useMemo(() => new Map(classes.map((item) => [item.id, item.name])), [classes]);
+
+  const examListExams = useMemo(() => {
+    if (!examListClassId) return exams;
+    return exams.filter((exam) => String(exam.class_id) === examListClassId);
+  }, [exams, examListClassId]);
+
+  const examFormSubjects = useMemo(() => {
+    if (!examForm.class_id) return [];
+    return subjects.filter((s) => String(s.class_id) === String(examForm.class_id));
+  }, [subjects, examForm.class_id]);
+
+  useEffect(() => {
+    // When class changes in exam form, initialize subject_max_marks
+    if (examForm.class_id) {
+       // Only initialized if it's empty, or if we switched classes entirely
+       const hasExistingForClass = examForm.subject_max_marks.length > 0 && 
+           examFormSubjects.some(s => examForm.subject_max_marks.some(sm => sm.subject_id === s.id));
+           
+       if (!hasExistingForClass) {
+           setExamForm(prev => ({
+             ...prev,
+             subject_max_marks: examFormSubjects.map(s => ({
+               subject_id: s.id,
+               max_marks: 100 // default max marks
+             }))
+           }));
+       }
+    }
+  }, [examForm.class_id, examFormSubjects]);
+
   const marksTableExams = marksTableClassId
     ? exams.filter((exam) => String(exam.class_id) === marksTableClassId)
     : [];
@@ -629,6 +734,87 @@ export default function Exams() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
+            <h3 className="font-bold text-slate-900">Exams List</h3>
+            <p className="text-sm text-slate-500">Manage all existing exams.</p>
+          </div>
+          <div className="grid w-full gap-3 md:w-auto md:grid-cols-1">
+            <select
+              className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+              value={examListClassId}
+              onChange={(e) => setExamListClassId(e.target.value)}
+            >
+              <option value="">All Classes</option>
+              {classes.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="p-6">
+          {examListExams.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {examListExams.map((exam) => (
+                <div key={exam.id} className="relative bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow group overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 rounded-l-2xl"></div>
+                  
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h4 className="text-lg font-bold text-slate-900 mb-1">{exam.name}</h4>
+                      <div className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
+                        {exam.class_name}
+                      </div>
+                    </div>
+                    <div className="flex space-x-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => openEditExamModal(exam)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                        title="Edit Exam"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteExam(exam)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete Exam"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <div className="text-xs text-slate-500 font-medium mb-1">Exam Date</div>
+                      <div className="text-sm font-semibold text-slate-700">{exam.date}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 font-medium mb-1">Full Marks</div>
+                      <div className="text-sm font-semibold text-slate-700">{exam.full_marks || '100'}</div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleViewResults(exam)}
+                    className="w-full flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-700 py-2.5 rounded-xl text-sm font-semibold transition-colors border border-slate-200"
+                  >
+                    <Eye className="w-4 h-4" />
+                    View Results
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+              <div className="text-slate-500 font-medium">No exams found</div>
+              <p className="text-sm text-slate-400 mt-1">Try changing the class filter or create a new exam.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
             <h3 className="font-bold text-slate-900">Student Marks Table</h3>
             <p className="text-sm text-slate-500">Select class and exam to view all students with subject-wise marks.</p>
           </div>
@@ -941,19 +1127,176 @@ export default function Exams() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Full Mark</label>
-                <input
+                <label className="text-sm font-semibold text-slate-700">Class</label>
+                <select 
                   required
-                  type="number"
-                  min="1"
                   className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                  value={examForm.full_marks}
-                  onChange={(e) => setExamForm({ ...examForm, full_marks: e.target.value })}
-                  placeholder="100"
+                  value={examForm.class_id}
+                  onChange={(e) => setExamForm({...examForm, class_id: e.target.value})}
+                >
+                  <option value="">Select Class</option>
+                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              {examForm.class_id && examFormSubjects.length > 0 && (
+                <div className="space-y-3">
+                  <label className="text-sm font-semibold text-slate-700">Subject Max Marks</label>
+                  <div className="grid grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-2">
+                    {examFormSubjects.map(subject => {
+                      const item = examForm.subject_max_marks.find(sm => sm.subject_id === subject.id);
+                      return (
+                        <div key={subject.id} className="space-y-1">
+                          <label className="text-xs text-slate-500">{subject.name}</label>
+                          <input
+                            required
+                            type="number"
+                            min="1"
+                            className="w-full px-3 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                            value={item?.max_marks || ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setExamForm(prev => {
+                                const exists = prev.subject_max_marks.find(sm => sm.subject_id === subject.id);
+                                if (exists) {
+                                  return {
+                                    ...prev,
+                                    subject_max_marks: prev.subject_max_marks.map(sm => 
+                                      sm.subject_id === subject.id ? { ...sm, max_marks: val } : sm
+                                    )
+                                  };
+                                } else {
+                                  return {
+                                    ...prev,
+                                    subject_max_marks: [...prev.subject_max_marks, { subject_id: subject.id, max_marks: val }]
+                                  };
+                                }
+                              });
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 mt-4">
+                Create Exam
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Exam Modal */}
+      {isEditExamModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-slate-900">Edit Exam</h3>
+              <button 
+                onClick={() => {
+                  setIsEditExamModalOpen(false);
+                  setSelectedExamForEdit(null);
+                  setExamForm({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', full_marks: '100' });
+                }} 
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateExam} className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Exam Name</label>
+                <input 
+                  required
+                  type="text" 
+                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  value={examForm.name}
+                  onChange={(e) => setExamForm({...examForm, name: e.target.value})}
+                  placeholder="e.g. Mid-Term Examination"
                 />
               </div>
-              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
-                Create Exam
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Exam Date</label>
+                <input 
+                  required
+                  type="date" 
+                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  value={examForm.date}
+                  onChange={(e) => setExamForm({...examForm, date: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Class</label>
+                <select 
+                  required
+                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  value={examForm.class_id}
+                  onChange={(e) => setExamForm({...examForm, class_id: e.target.value})}
+                >
+                  <option value="">Select Class</option>
+                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Class</label>
+                <select 
+                  required
+                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  value={examForm.class_id}
+                  onChange={(e) => setExamForm({...examForm, class_id: e.target.value})}
+                >
+                  <option value="">Select Class</option>
+                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              {examForm.class_id && examFormSubjects.length > 0 && (
+                <div className="space-y-3">
+                  <label className="text-sm font-semibold text-slate-700">Subject Max Marks</label>
+                  <div className="grid grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-2">
+                    {examFormSubjects.map(subject => {
+                      const item = examForm.subject_max_marks.find(sm => sm.subject_id === subject.id);
+                      return (
+                        <div key={subject.id} className="space-y-1">
+                          <label className="text-xs text-slate-500">{subject.name}</label>
+                          <input
+                            required
+                            type="number"
+                            min="1"
+                            className="w-full px-3 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                            value={item?.max_marks || ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setExamForm(prev => {
+                                const exists = prev.subject_max_marks.find(sm => sm.subject_id === subject.id);
+                                if (exists) {
+                                  return {
+                                    ...prev,
+                                    subject_max_marks: prev.subject_max_marks.map(sm => 
+                                      sm.subject_id === subject.id ? { ...sm, max_marks: val } : sm
+                                    )
+                                  };
+                                } else {
+                                  return {
+                                    ...prev,
+                                    subject_max_marks: [...prev.subject_max_marks, { subject_id: subject.id, max_marks: val }]
+                                  };
+                                }
+                              });
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 mt-4">
+                Update Exam
               </button>
             </form>
           </div>
@@ -1044,18 +1387,21 @@ export default function Exams() {
                   <p className="text-xs text-slate-500">All class subjects appear together once class and exam are selected.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                  {filteredSubjects.map((subject) => (
+                  {filteredSubjects.map((subject) => {
+                    const maxMarks = getSubjectMaxMarks(subject.id);
+                    return (
                     <div key={subject.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                       <div>
-                        <div className="font-semibold text-slate-900">{subject.name}</div>
+                        <div className="font-semibold text-slate-900">{subject.name} <span className="text-xs text-indigo-600 font-bold ml-1">(Max: {maxMarks})</span></div>
                         <div className="text-xs text-slate-500">{subject.class_name}</div>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div className="mt-3">
                         <div className="space-y-2">
                           <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Marks Obtained</label>
                           <input
                             type="number"
                             step="0.1"
+                            max={maxMarks}
                             className="w-full rounded-xl border-none bg-white px-3 py-2 focus:ring-2 focus:ring-indigo-500"
                             value={subjectMarks[subject.id]?.marks_obtained || ''}
                             onChange={(e) =>
@@ -1063,24 +1409,7 @@ export default function Exams() {
                                 ...current,
                                 [subject.id]: {
                                   marks_obtained: e.target.value,
-                                  max_marks: current[subject.id]?.max_marks || String(selectedExam?.full_marks || 100),
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Max Marks</label>
-                          <input
-                            type="number"
-                            className="w-full rounded-xl border-none bg-white px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                            value={subjectMarks[subject.id]?.max_marks || String(selectedExam?.full_marks || 100)}
-                            onChange={(e) =>
-                              setSubjectMarks((current) => ({
-                                ...current,
-                                [subject.id]: {
-                                  marks_obtained: current[subject.id]?.marks_obtained || '',
-                                  max_marks: e.target.value,
+                                  max_marks: String(maxMarks),
                                 },
                               }))
                             }
@@ -1088,7 +1417,7 @@ export default function Exams() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
               <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">

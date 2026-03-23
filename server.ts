@@ -122,8 +122,6 @@ function buildClassMap(classes: Array<Record<string, unknown>>) {
 }
 
 async function startServer() {
-  await connectToDatabase();
-
   const app = express();
   app.use(express.json({ limit: "10mb" }));
 
@@ -443,12 +441,47 @@ async function startServer() {
         name: req.body.name,
         date: req.body.date || dateString(),
         class_id: toNumber(req.body.class_id),
-        full_marks: toNumber(req.body.full_marks) || 100,
+        subject_max_marks: Array.isArray(req.body.subject_max_marks) ? req.body.subject_max_marks : [],
       });
       res.json({ id: created.id });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
+  });
+
+  app.put("/api/exams/:id", authenticateToken, async (req, res) => {
+    try {
+      const updated = await Exam.findOneAndUpdate(
+        { id: toNumber(req.params.id) },
+        {
+          name: req.body.name,
+          date: req.body.date,
+          class_id: toNumber(req.body.class_id),
+          subject_max_marks: Array.isArray(req.body.subject_max_marks) ? req.body.subject_max_marks : [],
+        },
+        { returnDocument: "after", runValidators: true },
+      ).lean();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Exam not found" });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/exams/:id", authenticateToken, async (req, res) => {
+    const examId = toNumber(req.params.id);
+    const deleted = await Exam.findOneAndDelete({ id: examId }).lean();
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Exam not found" });
+    }
+
+    await Mark.deleteMany({ exam_id: examId });
+    res.json({ success: true });
   });
 
   app.post("/api/marks", authenticateToken, async (req, res) => {
@@ -971,8 +1004,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, "0.0.0.0", async () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    try {
+      await connectToDatabase();
+      console.log("Connected to MongoDB successfully");
+    } catch (err) {
+      console.error("Failed to connect to MongoDB", err);
+    }
   });
 }
 

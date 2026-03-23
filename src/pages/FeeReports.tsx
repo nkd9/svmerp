@@ -57,6 +57,7 @@ export default function FeeReports() {
   const [reportRows, setReportRows] = useState<ReportRow[]>([]);
   const [dailyCollectionDate, setDailyCollectionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [oldDueSession, setOldDueSession] = useState('');
+  const [selectedClassForDue, setSelectedClassForDue] = useState('');
   const [transactionFilters, setTransactionFilters] = useState({
     start: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd'),
@@ -103,6 +104,10 @@ export default function FeeReports() {
   );
   const sessionOptions = useMemo(
     () => (Array.from(new Set(students.map((student) => String(student.session || '')).filter(Boolean))) as string[]).sort((a, b) => b.localeCompare(a)),
+    [students],
+  );
+  const classOptions = useMemo(
+    () => (Array.from(new Set(students.map((student) => String(student.class_name || '')).filter(Boolean))) as string[]).sort((a, b) => a.localeCompare(b)),
     [students],
   );
 
@@ -165,6 +170,53 @@ export default function FeeReports() {
       }));
 
     openReport(`Old Due Report${oldDueSession ? ` - ${oldDueSession}` : ''}`, rows);
+  };
+
+  const generateDueByClassReport = () => {
+    const studentStats = new Map<string, { reg_no: string; name: string; class_name: string; phone: string; total_amount: number; paid_amount: number; due_amount: number }>();
+
+    feesWithStudent
+      .filter((fee) => !selectedClassForDue || fee.student?.class_name === selectedClassForDue)
+      .forEach((fee) => {
+        if (!fee.student) return;
+        
+        const current = studentStats.get(fee.student.id) || {
+          reg_no: fee.student.reg_no || '',
+          name: fee.student.name || '',
+          class_name: fee.student.class_name || '',
+          phone: fee.student.phone || '',
+          total_amount: 0,
+          paid_amount: 0,
+          due_amount: 0
+        };
+        
+        if (fee.status !== 'cancelled') {
+          const amount = Number(fee.amount || 0);
+          current.total_amount += amount;
+          if (fee.status === 'paid') {
+            current.paid_amount += amount;
+          } else if (fee.status === 'pending') {
+            current.due_amount += amount;
+          }
+        }
+        
+        studentStats.set(fee.student.id, current);
+      });
+
+    const rows = Array.from(studentStats.values())
+      .filter((student) => student.due_amount > 0)
+      .map((student) => ({
+        'Registration No': student.reg_no,
+        'Student Name': student.name,
+        Class: student.class_name,
+        'Contact Number': student.phone,
+        'Total Amount': student.total_amount,
+        'Paid Amount': student.paid_amount,
+        'Due Amount': student.due_amount,
+      }))
+      .sort((a, b) => (a.Class || '').localeCompare(b.Class || '') || (a['Student Name'] || '').localeCompare(b['Student Name'] || ''));
+
+    openReport(`Due By Class Report${selectedClassForDue ? ` - ${selectedClassForDue}` : ''}`, rows);
   };
 
   const generateTransactionReport = () => {
@@ -325,6 +377,38 @@ export default function FeeReports() {
             >
               <Download className="h-4 w-4" />
               Generate Old Due
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
+            <AlertCircle className="h-5 w-5" />
+            <div>
+              <h2 className="text-lg font-bold">Due By Class Report</h2>
+              <p className="text-sm text-indigo-100">Total pending fees grouped by class.</p>
+            </div>
+          </div>
+          <div className="space-y-4 p-6">
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
+              <select
+                value={selectedClassForDue}
+                onChange={(e) => setSelectedClassForDue(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
+              >
+                <option value="">All Classes</option>
+                {classOptions.map((className) => (
+                  <option key={className} value={className}>{className}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={generateDueByClassReport}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:-translate-y-0.5"
+            >
+              <Download className="h-4 w-4" />
+              Generate Due By Class
             </button>
           </div>
         </section>
