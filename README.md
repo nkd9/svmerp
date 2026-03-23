@@ -51,6 +51,9 @@ Development is split into two processes:
    `npm install`
 2. Create `.env.local` from `.env.example` and set:
    `MONGODB_URI=mongodb://127.0.0.1:27017/svm-classes-erp`
+   `CLOUDINARY_CLOUD_NAME=your-cloud-name`
+   `CLOUDINARY_API_KEY=your-cloudinary-api-key`
+   `CLOUDINARY_API_SECRET=your-cloudinary-api-secret`
 3. Start the backend API:
    `npm run dev:api`
 4. In a second terminal, start the frontend:

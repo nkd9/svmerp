@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import express from "express";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +35,10 @@ try {
 
 const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key";
 const PORT = Number(process.env.PORT || 3000);
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || "";
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || "";
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
+const CLOUDINARY_FOLDER = process.env.CLOUDINARY_FOLDER || "svm-erp/students";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DIST_DIR = path.join(__dirname, "dist");
@@ -55,6 +60,18 @@ function dateString(date = new Date()) {
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function isCloudinaryConfigured() {
+  return Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
+}
+
+function createCloudinarySignature(params: Record<string, string | number>) {
+  const sortedEntries = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .sort(([a], [b]) => a.localeCompare(b));
+  const toSign = sortedEntries.map(([key, value]) => `${key}=${value}`).join("&");
+  return crypto.createHash("sha1").update(`${toSign}${CLOUDINARY_API_SECRET}`).digest("hex");
 }
 
 function buildStudentPayload(body: any, existingStatus?: string) {
@@ -173,6 +190,26 @@ async function startServer() {
         role: user.role,
         name: user.name,
       },
+    });
+  });
+
+  app.get("/api/uploads/student-photo-signature", authenticateToken, async (_req, res) => {
+    if (!isCloudinaryConfigured()) {
+      return res.status(500).json({ error: "Cloudinary is not configured on the server" });
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const params = {
+      folder: CLOUDINARY_FOLDER,
+      timestamp,
+    };
+
+    res.json({
+      cloudName: CLOUDINARY_CLOUD_NAME,
+      apiKey: CLOUDINARY_API_KEY,
+      folder: CLOUDINARY_FOLDER,
+      timestamp,
+      signature: createCloudinarySignature(params),
     });
   });
 
@@ -924,6 +961,33 @@ async function startServer() {
     }
   });
 
+  app.put("/api/admin/students/:id/fee-setup", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const student = await Student.findOneAndUpdate(
+        { id: toNumber(req.params.id) },
+        {
+          coaching_fee: toNumber(req.body.coaching_fee),
+          admission_fee: toNumber(req.body.admission_fee),
+          transport: req.body.transport === "Yes" ? "Yes" : "No",
+          transport_fee: toNumber(req.body.transport_fee),
+          entrance: req.body.entrance === "Yes" ? "Yes" : "No",
+          entrance_fee: toNumber(req.body.entrance_fee),
+          fooding: req.body.fooding === "Yes" ? "Yes" : "No",
+          fooding_fee: toNumber(req.body.fooding_fee),
+        },
+        { returnDocument: "after", runValidators: true },
+      ).lean();
+
+      if (!student) {
+        return res.status(404).json({ error: "Student not found" });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.delete("/api/admin/students/:id", authenticateToken, requireAdmin, async (req, res) => {
     const studentId = toNumber(req.params.id);
     const student = await Student.findOneAndDelete({ id: studentId }).lean();
@@ -976,8 +1040,12 @@ async function startServer() {
       return res.json({ students: [] });
     }
 
+    const numericQuery = toNumber(query);
+    const isNumericQuery = query !== "" && String(numericQuery) === query;
+
     const students = await Student.find({
       $or: [
+        ...(isNumericQuery ? [{ id: numericQuery }] : []),
         { name: { $regex: query, $options: "i" } },
         { reg_no: { $regex: query, $options: "i" } },
         { phone: { $regex: query, $options: "i" } },
@@ -999,6 +1067,14 @@ async function startServer() {
       students: students.map((student) => ({
         ...stripMongoFields(student),
         class_name: classMap.get(student.class_id) || "",
+        coaching_fee: student.coaching_fee || 0,
+        admission_fee: student.admission_fee || 0,
+        transport: student.transport || "No",
+        transport_fee: student.transport_fee || 0,
+        entrance: student.entrance || "No",
+        entrance_fee: student.entrance_fee || 0,
+        fooding: student.fooding || "No",
+        fooding_fee: student.fooding_fee || 0,
         fees: fees.filter((fee) => fee.student_id === student.id).map((fee) => stripMongoFields(fee)),
         transactions: transactions
           .filter((transaction) => transaction.student_id === student.id)

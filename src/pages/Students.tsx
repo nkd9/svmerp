@@ -79,6 +79,14 @@ interface Class {
   name: string;
 }
 
+interface CloudinarySignatureResponse {
+  cloudName: string;
+  apiKey: string;
+  folder: string;
+  timestamp: number;
+  signature: string;
+}
+
 type CustomFieldKey =
   | 'id'
   | 'name'
@@ -95,6 +103,65 @@ type CustomFieldKey =
   | 'bank_name'
   | 'account_no'
   | 'ifsc';
+
+const MAX_PHOTO_DIMENSION = 1280;
+const PHOTO_OUTPUT_QUALITY = 0.82;
+const MAX_OPTIMIZED_PHOTO_BYTES = 1024 * 1024;
+
+async function loadImage(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Unable to load image for optimization'));
+      img.src = objectUrl;
+    });
+
+    return image;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function optimizeStudentPhoto(file: File) {
+  const image = await loadImage(file);
+  const scale = Math.min(1, MAX_PHOTO_DIMENSION / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Image optimization is not supported in this browser');
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((result) => {
+      if (!result) {
+        reject(new Error('Failed to optimize the image'));
+        return;
+      }
+
+      resolve(result);
+    }, 'image/jpeg', PHOTO_OUTPUT_QUALITY);
+  });
+
+  if (blob.size > MAX_OPTIMIZED_PHOTO_BYTES) {
+    throw new Error('Optimized image is still too large. Please choose a smaller photo.');
+  }
+
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'student-photo';
+  return new File([blob], `${baseName}.jpg`, {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  });
+}
 
 export default function Students() {
   const occupationOptions = [
@@ -175,6 +242,9 @@ export default function Students() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState<Partial<Student>>(emptyStudentForm());
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState('');
 
   // Report Filters
   const [reportFilters, setReportFilters] = useState({
@@ -266,20 +336,84 @@ export default function Students() {
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, photo_url: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setPhotoUploadError('Please choose a valid image file.');
+      return;
+    }
+
+    setPhotoUploadError('');
+    setIsUploadingPhoto(true);
+
+    try {
+      const optimizedFile = await optimizeStudentPhoto(file);
+      const previewUrl = URL.createObjectURL(optimizedFile);
+      setPhotoPreviewUrl((currentPreview) => {
+        if (currentPreview) {
+          URL.revokeObjectURL(currentPreview);
+        }
+
+        return previewUrl;
+      });
+
+      const token = localStorage.getItem('token');
+      const signatureRes = await fetch('/api/uploads/student-photo-signature', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!signatureRes.ok) {
+        const data = await signatureRes.json().catch(() => ({ error: 'Could not start photo upload' }));
+        throw new Error(data.error || 'Could not start photo upload');
+      }
+
+      const signatureData = await signatureRes.json() as CloudinarySignatureResponse;
+      const uploadData = new FormData();
+      uploadData.append('file', optimizedFile);
+      uploadData.append('api_key', signatureData.apiKey);
+      uploadData.append('timestamp', String(signatureData.timestamp));
+      uploadData.append('signature', signatureData.signature);
+      uploadData.append('folder', signatureData.folder);
+
+      const cloudinaryRes = await fetch(`https://api.cloudinary.com/v1_1/${signatureData.cloudName}/image/upload`, {
+        method: 'POST',
+        body: uploadData
+      });
+
+      const cloudinaryJson = await cloudinaryRes.json().catch(() => ({}));
+      if (!cloudinaryRes.ok || !cloudinaryJson.secure_url) {
+        throw new Error(cloudinaryJson.error?.message || 'Photo upload failed');
+      }
+
+      setFormData((currentForm) => ({
+        ...currentForm,
+        photo_url: cloudinaryJson.secure_url as string,
+      }));
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      const message = error instanceof Error ? error.message : 'Failed to upload photo';
+      setPhotoUploadError(message);
+    } finally {
+      setIsUploadingPhoto(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      if (isUploadingPhoto) {
+        alert('Please wait for the photo upload to finish before saving.');
+        return;
+      }
+
       const token = localStorage.getItem('token');
       const url = selectedStudent ? `/api/students/${selectedStudent.id}` : '/api/students';
       const method = selectedStudent ? 'PUT' : 'POST';
@@ -298,6 +432,14 @@ export default function Students() {
         fetchData();
         setView('list');
         setSelectedStudent(null);
+        setPhotoUploadError('');
+        setPhotoPreviewUrl((currentPreview) => {
+          if (currentPreview) {
+            URL.revokeObjectURL(currentPreview);
+          }
+
+          return null;
+        });
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to save student');
@@ -494,6 +636,14 @@ export default function Students() {
             onClick={() => {
               setSelectedStudent(null);
               setFormData({ ...emptyStudentForm(), class_id: classes[0]?.id || 0 });
+              setPhotoUploadError('');
+              setPhotoPreviewUrl((currentPreview) => {
+                if (currentPreview) {
+                  URL.revokeObjectURL(currentPreview);
+                }
+
+                return null;
+              });
               setView('form');
             }}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
@@ -577,6 +727,14 @@ export default function Students() {
                         <button 
                           onClick={() => {
                             setSelectedStudent(student);
+                            setPhotoUploadError('');
+                            setPhotoPreviewUrl((currentPreview) => {
+                              if (currentPreview) {
+                                URL.revokeObjectURL(currentPreview);
+                              }
+
+                              return null;
+                            });
                             setFormData(student);
                             setView('form');
                           }}
@@ -598,7 +756,17 @@ export default function Students() {
         <div className="max-w-7xl mx-auto bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden">
           <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
             <div className="flex items-center gap-4">
-              <button onClick={() => setView('list')} className="p-2 hover:bg-white hover:shadow-sm rounded-full transition-all text-slate-500">
+              <button onClick={() => {
+                setPhotoUploadError('');
+                setPhotoPreviewUrl((currentPreview) => {
+                  if (currentPreview) {
+                    URL.revokeObjectURL(currentPreview);
+                  }
+
+                  return null;
+                });
+                setView('list');
+              }} className="p-2 hover:bg-white hover:shadow-sm rounded-full transition-all text-slate-500">
                 <ArrowLeft size={20} />
               </button>
               <div>
@@ -613,18 +781,20 @@ export default function Students() {
             <div className="flex flex-col items-center mb-8">
               <div className="relative group">
                 <div className="w-32 h-32 rounded-2xl bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden transition-colors group-hover:border-indigo-300">
-                  {formData.photo_url ? (
-                    <img src={formData.photo_url} alt="Preview" className="w-full h-full object-cover" />
+                  {photoPreviewUrl || formData.photo_url ? (
+                    <img src={photoPreviewUrl || formData.photo_url} alt="Preview" className="w-full h-full object-cover" />
                   ) : (
                     <Camera className="text-slate-300" size={32} />
                   )}
                 </div>
-                <label className="absolute -bottom-2 -right-2 p-2.5 bg-indigo-600 text-white rounded-xl cursor-pointer hover:bg-indigo-700 shadow-lg transition-transform group-hover:scale-110">
+                <label className={`absolute -bottom-2 -right-2 p-2.5 text-white rounded-xl shadow-lg transition-transform group-hover:scale-110 ${isUploadingPhoto ? 'cursor-wait bg-amber-500' : 'cursor-pointer bg-indigo-600 hover:bg-indigo-700'}`}>
                   <Camera size={18} />
-                  <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
+                  <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} disabled={isUploadingPhoto} />
                 </label>
               </div>
-              <p className="mt-4 text-xs font-medium text-slate-400">Upload student photo (Max 2MB)</p>
+              <p className="mt-4 text-xs font-medium text-slate-400">Upload student photo. We resize and optimize it before upload.</p>
+              {isUploadingPhoto && <p className="mt-2 text-xs font-semibold text-amber-600">Optimizing and uploading photo...</p>}
+              {photoUploadError && <p className="mt-2 text-xs font-semibold text-rose-600">{photoUploadError}</p>}
             </div>
 
             <div className="space-y-6">
@@ -927,17 +1097,28 @@ export default function Students() {
             <div className="flex justify-end gap-4 pt-8 border-t border-slate-100">
               <button 
                 type="button"
-                onClick={() => setView('list')}
+                onClick={() => {
+                  setPhotoUploadError('');
+                  setPhotoPreviewUrl((currentPreview) => {
+                    if (currentPreview) {
+                      URL.revokeObjectURL(currentPreview);
+                    }
+
+                    return null;
+                  });
+                  setView('list');
+                }}
                 className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-slate-50 rounded-xl transition-colors"
               >
                 Cancel
               </button>
               <button 
                 type="submit"
-                className="flex items-center gap-2 px-8 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                disabled={isUploadingPhoto}
+                className={`flex items-center gap-2 px-8 py-2.5 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-200 ${isUploadingPhoto ? 'cursor-not-allowed bg-indigo-300' : 'bg-indigo-600 hover:bg-indigo-700'}`}
               >
                 <Save size={18} />
-                {selectedStudent ? 'Update Profile' : 'Register Student'}
+                {isUploadingPhoto ? 'Uploading Photo...' : selectedStudent ? 'Update Profile' : 'Register Student'}
               </button>
             </div>
           </form>
@@ -975,6 +1156,14 @@ export default function Students() {
                 </button>
                 <button 
                   onClick={() => {
+                    setPhotoUploadError('');
+                    setPhotoPreviewUrl((currentPreview) => {
+                      if (currentPreview) {
+                        URL.revokeObjectURL(currentPreview);
+                      }
+
+                      return null;
+                    });
                     setFormData(selectedStudent);
                     setView('form');
                   }}

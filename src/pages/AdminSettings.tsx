@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw } from 'lucide-react';
 
 type AdminUser = {
@@ -45,12 +45,42 @@ type StudentAccount = {
   class_id: number;
   class_name: string;
   phone: string;
+  coaching_fee: number;
+  admission_fee: number;
+  transport: string;
+  transport_fee: number;
+  entrance: string;
+  entrance_fee: number;
+  fooding: string;
+  fooding_fee: number;
   fees: StudentFee[];
   transactions: StudentTransaction[];
 };
 
+type FeeSetupDraft = {
+  coaching_fee: number;
+  admission_fee: number;
+  transport: string;
+  transport_fee: number;
+  entrance: string;
+  entrance_fee: number;
+  fooding: string;
+  fooding_fee: number;
+};
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
+
+const buildFeeSetupDraft = (student: StudentAccount): FeeSetupDraft => ({
+  coaching_fee: Number(student.coaching_fee || 0),
+  admission_fee: Number(student.admission_fee || 0),
+  transport: student.transport || 'No',
+  transport_fee: Number(student.transport_fee || 0),
+  entrance: student.entrance || 'No',
+  entrance_fee: Number(student.entrance_fee || 0),
+  fooding: student.fooding || 'No',
+  fooding_fee: Number(student.fooding_fee || 0),
+});
 
 export default function AdminSettings() {
   const token = localStorage.getItem('token');
@@ -59,7 +89,11 @@ export default function AdminSettings() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [ledgers, setLedgers] = useState<FeeLedger[]>([]);
-  const [accounts, setAccounts] = useState<StudentAccount[]>([]);
+  const [accountResults, setAccountResults] = useState<StudentAccount[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<StudentAccount | null>(null);
+  const [feeSetupDrafts, setFeeSetupDrafts] = useState<Record<number, FeeSetupDraft>>({});
+  const [savingFeeSetupFor, setSavingFeeSetupFor] = useState<number | null>(null);
+  const [isFeeSetupModalOpen, setIsFeeSetupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingAccounts, setLoadingAccounts] = useState(false);
 
@@ -67,10 +101,19 @@ export default function AdminSettings() {
   const [classForm, setClassForm] = useState({ name: '', batches: '' });
   const [ledgerForm, setLedgerForm] = useState({ name: '', description: '' });
   const [message, setMessage] = useState('');
+  const preserveSelectedOnNextEmptySearch = useRef(false);
 
   useEffect(() => {
     refreshAdminData();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      searchAccounts();
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   const notify = (text: string) => {
     setMessage(text);
@@ -166,7 +209,13 @@ export default function AdminSettings() {
   const searchAccounts = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!searchQuery.trim()) {
-      setAccounts([]);
+      setAccountResults([]);
+      if (preserveSelectedOnNextEmptySearch.current) {
+        preserveSelectedOnNextEmptySearch.current = false;
+        return;
+      }
+      setSelectedAccount(null);
+      setFeeSetupDrafts({});
       return;
     }
 
@@ -175,8 +224,57 @@ export default function AdminSettings() {
       headers: authHeaders,
     });
     const data = await res.json();
-    setAccounts(data.students || []);
+    const students = (data.students || []) as StudentAccount[];
+    setAccountResults(students);
+    if (selectedAccount) {
+      const refreshedStudent = students.find((student) => student.id === selectedAccount.id) || null;
+      setSelectedAccount(refreshedStudent);
+      if (refreshedStudent) {
+        setFeeSetupDrafts((current) => ({
+          ...current,
+          [refreshedStudent.id]: buildFeeSetupDraft(refreshedStudent),
+        }));
+      }
+    }
     setLoadingAccounts(false);
+  };
+
+  const selectAccount = (student: StudentAccount) => {
+    setSelectedAccount(student);
+    preserveSelectedOnNextEmptySearch.current = true;
+    setSearchQuery('');
+    setAccountResults([]);
+    setFeeSetupDrafts((current) => ({
+      ...current,
+      [student.id]: current[student.id] || buildFeeSetupDraft(student),
+    }));
+  };
+
+  const updateFeeSetupDraft = (studentId: number, field: keyof FeeSetupDraft, value: string | number) => {
+    setFeeSetupDrafts((current) => ({
+      ...current,
+      [studentId]: {
+        ...(current[studentId] || buildFeeSetupDraft({
+          id: studentId,
+          name: '',
+          reg_no: '',
+          class_id: 0,
+          class_name: '',
+          phone: '',
+          coaching_fee: 0,
+          admission_fee: 0,
+          transport: 'No',
+          transport_fee: 0,
+          entrance: 'No',
+          entrance_fee: 0,
+          fooding: 'No',
+          fooding_fee: 0,
+          fees: [],
+          transactions: [],
+        })),
+        [field]: value,
+      },
+    }));
   };
 
   const updateStudentClass = async (studentId: number, classId: number) => {
@@ -241,6 +339,28 @@ export default function AdminSettings() {
     } else {
       const data = await res.json();
       notify(data.error || 'Unable to cancel payment');
+    }
+  };
+
+  const saveFeeSetup = async (studentId: number) => {
+    const draft = feeSetupDrafts[studentId];
+    if (!draft) return;
+
+    setSavingFeeSetupFor(studentId);
+    const res = await fetch(`/api/admin/students/${studentId}/fee-setup`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(draft),
+    });
+    setSavingFeeSetupFor(null);
+
+    if (res.ok) {
+      searchAccounts();
+      setIsFeeSetupModalOpen(false);
+      notify('Fee setup updated');
+    } else {
+      const data = await res.json();
+      notify(data.error || 'Unable to update fee setup');
     }
   };
 
@@ -444,10 +564,13 @@ export default function AdminSettings() {
               <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search by student name, registration no, or phone"
+                placeholder="Search by student ID, name, registration no, or phone"
                 className="w-full rounded-xl bg-slate-50 py-3 pl-11 pr-4 outline-none focus:ring-2 focus:ring-indigo-500"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setSelectedAccount(null);
+                }}
               />
             </div>
             <button type="submit" className="rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-700">
@@ -457,41 +580,73 @@ export default function AdminSettings() {
         </div>
 
         <div className="space-y-5">
-          {loadingAccounts && <p className="text-sm text-slate-500">Searching accounts...</p>}
-          {!loadingAccounts && accounts.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-slate-500">
-              Search for a student account to manage class, registration number, payments, or delete records.
+          {!selectedAccount && searchQuery.trim() && accountResults.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              {accountResults.map((student) => (
+                <button
+                  key={student.id}
+                  type="button"
+                  onClick={() => selectAccount(student)}
+                  className="flex w-full items-center justify-between gap-4 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-slate-50"
+                >
+                  <div>
+                    <p className="font-semibold text-slate-900">{student.name}</p>
+                    <p className="text-sm text-slate-500">
+                      ID {student.id} • {student.reg_no} • {student.class_name}
+                    </p>
+                  </div>
+                  <div className="text-sm text-slate-500">{student.phone || 'No phone'}</div>
+                </button>
+              ))}
             </div>
           )}
 
-          {accounts.map((student) => (
-            <div key={student.id} className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
+          {loadingAccounts && <p className="text-sm text-slate-500">Searching accounts...</p>}
+          {!loadingAccounts && !selectedAccount && !searchQuery.trim() && (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-slate-500">
+              Search for a student account to manage class, registration number, fee setup, payments, or delete records.
+            </div>
+          )}
+          {!loadingAccounts && !selectedAccount && searchQuery.trim() && accountResults.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-slate-500">
+              No students found. Try name, student ID, registration number, or phone.
+            </div>
+          )}
+
+          {selectedAccount && (
+            <div key={selectedAccount.id} className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">{student.name}</h3>
+                  <h3 className="text-lg font-bold text-slate-900">{selectedAccount.name}</h3>
                   <p className="text-sm text-slate-500">
-                    {student.reg_no} • {student.class_name} • {student.phone || 'No phone'}
+                    ID {selectedAccount.id} • {selectedAccount.reg_no} • {selectedAccount.class_name} • {selectedAccount.phone || 'No phone'}
                   </p>
                 </div>
 
                 <div className="flex flex-wrap gap-3">
                   <select
                     className="rounded-xl bg-white px-4 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500"
-                    value={student.class_id}
-                    onChange={(e) => updateStudentClass(student.id, Number(e.target.value))}
+                    value={selectedAccount.class_id}
+                    onChange={(e) => updateStudentClass(selectedAccount.id, Number(e.target.value))}
                   >
                     {classes.map((item) => (
                       <option key={item.id} value={item.id}>{item.name}</option>
                     ))}
                   </select>
                   <button
-                    onClick={() => updateRegistrationNumber(student.id, student.reg_no)}
+                    onClick={() => setIsFeeSetupModalOpen(true)}
+                    className="rounded-xl bg-white px-4 py-2.5 font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                  >
+                    Fee Setup
+                  </button>
+                  <button
+                    onClick={() => updateRegistrationNumber(selectedAccount.id, selectedAccount.reg_no)}
                     className="rounded-xl bg-white px-4 py-2.5 font-semibold text-indigo-600 transition hover:bg-indigo-50"
                   >
                     Update Reg No
                   </button>
                   <button
-                    onClick={() => deleteStudent(student.id)}
+                    onClick={() => deleteStudent(selectedAccount.id)}
                     className="rounded-xl bg-rose-50 px-4 py-2.5 font-semibold text-rose-600 transition hover:bg-rose-100"
                   >
                     Delete Student
@@ -503,8 +658,8 @@ export default function AdminSettings() {
                 <div className="rounded-2xl bg-white p-4">
                   <h4 className="mb-3 font-bold text-slate-900">Payments</h4>
                   <div className="space-y-3">
-                    {student.fees.length === 0 && <p className="text-sm text-slate-500">No payments found.</p>}
-                    {student.fees.map((fee) => (
+                    {selectedAccount.fees.length === 0 && <p className="text-sm text-slate-500">No payments found.</p>}
+                    {selectedAccount.fees.map((fee) => (
                       <div key={fee.id} className="flex flex-col gap-2 rounded-2xl bg-slate-50 p-3 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="font-semibold text-slate-900">{fee.type}</p>
@@ -532,8 +687,8 @@ export default function AdminSettings() {
                 <div className="rounded-2xl bg-white p-4">
                   <h4 className="mb-3 font-bold text-slate-900">Transactions</h4>
                   <div className="space-y-3">
-                    {student.transactions.length === 0 && <p className="text-sm text-slate-500">No transactions found.</p>}
-                    {student.transactions.map((transaction) => (
+                    {selectedAccount.transactions.length === 0 && <p className="text-sm text-slate-500">No transactions found.</p>}
+                    {selectedAccount.transactions.map((transaction) => (
                       <div key={transaction.id} className="rounded-2xl bg-slate-50 p-3">
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-semibold text-slate-900">{transaction.description}</p>
@@ -548,9 +703,122 @@ export default function AdminSettings() {
                 </div>
               </div>
             </div>
-          ))}
+          )}
         </div>
       </section>
+
+      {selectedAccount && isFeeSetupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Fee Setup</h3>
+                <p className="text-sm text-slate-500">
+                  Update payment setup for {selectedAccount.name} ({selectedAccount.id}).
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsFeeSetupModalOpen(false)}
+                  className="rounded-xl bg-slate-100 px-4 py-2.5 font-semibold text-slate-700 transition hover:bg-slate-200"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveFeeSetup(selectedAccount.id)}
+                  disabled={savingFeeSetupFor === selectedAccount.id}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white ${savingFeeSetupFor === selectedAccount.id ? 'bg-indigo-300' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                >
+                  {savingFeeSetupFor === selectedAccount.id ? 'Saving...' : 'Save Fee Setup'}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-4">
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Coaching Fee</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.coaching_fee ?? 0}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'coaching_fee', Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Admission Fee</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.admission_fee ?? 0}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'admission_fee', Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Transport</label>
+                <select
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.transport ?? 'No'}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'transport', e.target.value)}
+                >
+                  <option value="No">No</option>
+                  <option value="Yes">Yes</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Transport Fee</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.transport_fee ?? 0}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'transport_fee', Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Entrance</label>
+                <select
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.entrance ?? 'No'}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'entrance', e.target.value)}
+                >
+                  <option value="No">No</option>
+                  <option value="Yes">Yes</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Entrance Fee</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.entrance_fee ?? 0}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'entrance_fee', Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Fooding</label>
+                <select
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.fooding ?? 'No'}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'fooding', e.target.value)}
+                >
+                  <option value="No">No</option>
+                  <option value="Yes">Yes</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Fooding Fee</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={feeSetupDrafts[selectedAccount.id]?.fooding_fee ?? 0}
+                  onChange={(e) => updateFeeSetupDraft(selectedAccount.id, 'fooding_fee', Number(e.target.value))}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
