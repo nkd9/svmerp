@@ -106,6 +106,48 @@ export default function FeeReports() {
     () => (Array.from(new Set(students.map((student) => String(student.session || '')).filter(Boolean))) as string[]).sort((a, b) => b.localeCompare(a)),
     [students],
   );
+
+  const studentFeeSummary = useMemo(() => {
+    const summary = new Map<
+      number,
+      {
+        total_amount: number;
+        paid_amount: number;
+        pending_amount: number;
+      }
+    >();
+
+    feesWithStudent.forEach((fee) => {
+      if (!fee.student_id || fee.status === 'cancelled') {
+        return;
+      }
+
+      const current = summary.get(fee.student_id) || {
+        total_amount: 0,
+        paid_amount: 0,
+        pending_amount: 0,
+      };
+
+      const amount = Number(fee.amount || 0);
+      current.total_amount += amount;
+      if (fee.status === 'paid') {
+        current.paid_amount += amount;
+      } else if (fee.status === 'pending') {
+        current.pending_amount += amount;
+      }
+
+      summary.set(fee.student_id, current);
+    });
+
+    return summary;
+  }, [feesWithStudent]);
+
+  const getStudentSummary = (studentId?: number) =>
+    studentFeeSummary.get(Number(studentId)) || {
+      total_amount: 0,
+      paid_amount: 0,
+      pending_amount: 0,
+    };
   const classOptions = useMemo(
     () => (Array.from(new Set(students.map((student) => String(student.class_name || '')).filter(Boolean))) as string[]).sort((a, b) => a.localeCompare(b)),
     [students],
@@ -129,45 +171,79 @@ export default function FeeReports() {
         return {
           'Registration No': student.reg_no,
           'Student Name': student.name,
+          'Phone Number': student.phone || '',
           Class: student.class_name || '',
-          'Admission Fee': expectedAdmission,
-          Paid: paidAdmission,
-          'Due Amount': dueAmount,
+          'Total Amount': expectedAdmission,
+          'Paid Amount': paidAdmission,
+          'Pending Amount': dueAmount,
         };
       })
-      .filter((row) => Number(row['Due Amount']) > 0);
+      .filter((row) => Number(row['Pending Amount']) > 0);
 
     openReport('Admission Due Report', rows);
   };
 
   const generateDailyCollectionsReport = () => {
     const filteredRows = feesWithStudent.filter((fee) => fee.status === 'paid' && fee.date === dailyCollectionDate);
-    const rows = filteredRows.map((fee) => ({
-      Date: fee.date,
-      'Bill No': fee.bill_no,
-      'Student Name': fee.student_name,
-      Class: fee.student?.class_name || '',
-      'Fee Type': fee.type,
-      Amount: Number(fee.amount || 0),
-    }));
+    const rows = filteredRows.map((fee) => {
+      const summary = getStudentSummary(fee.student_id);
+      return {
+        Date: fee.date,
+        'Bill No': fee.bill_no,
+        'Student Name': fee.student_name,
+        'Phone Number': fee.student?.phone || '',
+        Class: fee.student?.class_name || '',
+        'Fee Type': fee.type,
+        'Total Amount': summary.total_amount,
+        'Paid Amount': summary.paid_amount,
+        'Pending Amount': summary.pending_amount,
+        Amount: Number(fee.amount || 0),
+      };
+    });
 
     const total = filteredRows.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-    openReport('Daily Collections Report', rows.length ? [...rows, { Date: '', 'Bill No': '', 'Student Name': 'Total', Class: '', 'Fee Type': '', Amount: total }] : []);
+    openReport(
+      'Daily Collections Report',
+      rows.length
+        ? [
+            ...rows,
+            {
+              Date: '',
+              'Bill No': '',
+              'Student Name': 'Total',
+              'Phone Number': '',
+              Class: '',
+              'Fee Type': '',
+              'Total Amount': '',
+              'Paid Amount': '',
+              'Pending Amount': '',
+              Amount: total,
+            },
+          ]
+        : [],
+    );
   };
 
   const generateOldDueReport = () => {
     const rows = feesWithStudent
       .filter((fee) => fee.status === 'pending' && (!oldDueSession || fee.student?.session === oldDueSession))
-      .map((fee) => ({
-        'Bill No': fee.bill_no,
-        'Registration No': fee.student?.reg_no || '',
-        'Student Name': fee.student_name,
-        'Educational Year': fee.student?.session || '',
-        Class: fee.student?.class_name || '',
-        'Fee Type': fee.type,
-        'Due Date': fee.date,
-        Amount: Number(fee.amount || 0),
-      }));
+      .map((fee) => {
+        const summary = getStudentSummary(fee.student_id);
+        return {
+          'Bill No': fee.bill_no,
+          'Registration No': fee.student?.reg_no || '',
+          'Student Name': fee.student_name,
+          'Phone Number': fee.student?.phone || '',
+          'Educational Year': fee.student?.session || '',
+          Class: fee.student?.class_name || '',
+          'Fee Type': fee.type,
+          'Due Date': fee.date,
+          'Total Amount': summary.total_amount,
+          'Paid Amount': summary.paid_amount,
+          'Pending Amount': summary.pending_amount,
+          Amount: Number(fee.amount || 0),
+        };
+      });
 
     openReport(`Old Due Report${oldDueSession ? ` - ${oldDueSession}` : ''}`, rows);
   };
@@ -209,10 +285,10 @@ export default function FeeReports() {
         'Registration No': student.reg_no,
         'Student Name': student.name,
         Class: student.class_name,
-        'Contact Number': student.phone,
+        'Phone Number': student.phone,
         'Total Amount': student.total_amount,
         'Paid Amount': student.paid_amount,
-        'Due Amount': student.due_amount,
+        'Pending Amount': student.due_amount,
       }))
       .sort((a, b) => (a.Class || '').localeCompare(b.Class || '') || (a['Student Name'] || '').localeCompare(b['Student Name'] || ''));
 
@@ -236,16 +312,23 @@ export default function FeeReports() {
         }
         return true;
       })
-      .map((fee) => ({
-        'Bill No': fee.bill_no,
-        Date: fee.date,
-        'Student Name': fee.student_name,
-        'Registration No': fee.student?.reg_no || '',
-        Class: fee.student?.class_name || '',
-        'Fee Type': fee.type,
-        Status: fee.status,
-        Amount: Number(fee.amount || 0),
-      }));
+      .map((fee) => {
+        const summary = getStudentSummary(fee.student_id);
+        return {
+          'Bill No': fee.bill_no,
+          Date: fee.date,
+          'Student Name': fee.student_name,
+          'Registration No': fee.student?.reg_no || '',
+          'Phone Number': fee.student?.phone || '',
+          Class: fee.student?.class_name || '',
+          'Fee Type': fee.type,
+          'Total Amount': summary.total_amount,
+          'Paid Amount': summary.paid_amount,
+          'Pending Amount': summary.pending_amount,
+          Status: fee.status,
+          Amount: Number(fee.amount || 0),
+        };
+      });
 
     openReport('Transaction Report', rows);
   };

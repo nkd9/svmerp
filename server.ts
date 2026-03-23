@@ -647,13 +647,24 @@ async function startServer() {
 
   app.get("/api/reports/fee-pending", authenticateToken, async (_req, res) => {
     const [fees, students, classes] = await Promise.all([
-      Fee.find({ status: "pending" }).lean(),
+      Fee.find({ status: { $ne: "cancelled" } }).lean(),
       Student.find().lean(),
       ClassModel.find().lean(),
     ]);
     const studentMap = new Map<number, any>(students.map((item) => [item.id, item]));
     const classMap = new Map<number, string>(classes.map((item) => [item.id, item.name]));
-    const grouped = new Map<number, { name: string; reg_no: string; class_name: string; pending_amount: number }>();
+    const grouped = new Map<
+      number,
+      {
+        name: string;
+        reg_no: string;
+        class_name: string;
+        phone: string;
+        total_amount: number;
+        paid_amount: number;
+        pending_amount: number;
+      }
+    >();
 
     for (const fee of fees) {
       const student = studentMap.get(fee.student_id) as any;
@@ -665,14 +676,22 @@ async function startServer() {
         name: student.name,
         reg_no: student.reg_no,
         class_name: classMap.get(student.class_id) || "",
+        phone: student.phone || "",
+        total_amount: 0,
+        paid_amount: 0,
         pending_amount: 0,
       };
 
-      current.pending_amount += fee.amount;
+      current.total_amount += fee.amount;
+      if (fee.status === "paid") {
+        current.paid_amount += fee.amount;
+      } else if (fee.status === "pending") {
+        current.pending_amount += fee.amount;
+      }
       grouped.set(student.id, current);
     }
 
-    res.json(Array.from(grouped.values()));
+    res.json(Array.from(grouped.values()).filter((item) => item.pending_amount > 0));
   });
 
   app.get("/api/reports/collection", authenticateToken, async (req, res) => {
