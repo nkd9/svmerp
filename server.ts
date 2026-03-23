@@ -1004,14 +1004,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", async () => {
+  await connectToDatabase();
+  console.log("Connected to MongoDB successfully");
+
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    try {
-      await connectToDatabase();
-      console.log("Connected to MongoDB successfully");
-    } catch (err) {
-      console.error("Failed to connect to MongoDB", err);
-    }
   });
 }
 
