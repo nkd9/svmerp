@@ -119,6 +119,8 @@ export default function AdminSettings() {
   const [streamForm, setStreamForm] = useState({ name: '' });
   const [message, setMessage] = useState('');
   const preserveSelectedOnNextEmptySearch = useRef(false);
+  const academicClasses = classes.filter((item) => ['XI ARTS', 'XII ARTS', 'XI SC', 'XII SC', 'PASSED OUT'].includes(String(item.name || '').toUpperCase()));
+  const academicStreams = streams.filter((item) => ['ARTS', 'SCIENCE'].includes(String(item.name || '').toUpperCase()));
 
   useEffect(() => {
     refreshAdminData();
@@ -460,7 +462,7 @@ export default function AdminSettings() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Admin Settings</h1>
-          <p className="text-slate-500">Manage users, classes, fee ledgers, and student account controls.</p>
+          <p className="text-slate-500">Manage office users, academic setup, ledgers, and student account controls.</p>
         </div>
         <button
           onClick={refreshAdminData}
@@ -477,27 +479,31 @@ export default function AdminSettings() {
         </div>
       )}
 
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        Recommended production setup: keep only <span className="font-semibold">XI Arts, XII Arts, XI Science, XII Science, Passed Out</span> as classes and only <span className="font-semibold">Arts</span> and <span className="font-semibold">Science</span> as streams.
+      </div>
+
       <div className="grid gap-6 md:grid-cols-3">
         <Link to="/fee-structures" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
           <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
             <WalletCards className="h-6 w-6" />
           </div>
-          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Fee Setup</h2>
-          <p className="mt-1 text-sm text-slate-500">Configure global academic fee structures and auto-apply them.</p>
+          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Fee Structure</h2>
+          <p className="mt-1 text-sm text-slate-500">Configure year-wise fee rules and apply them to active students.</p>
         </Link>
         <Link to="/student-promotion" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
           <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
             <GraduationCap className="h-6 w-6" />
           </div>
-          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Student Promotion</h2>
-          <p className="mt-1 text-sm text-slate-500">Promote batches of students to their next academic year.</p>
+          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Promotion & Graduation</h2>
+          <p className="mt-1 text-sm text-slate-500">Move 1st year students to 2nd year and passed-out students to alumni.</p>
         </Link>
         <Link to="/alumni" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
           <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
             <Archive className="h-6 w-6" />
           </div>
           <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Alumni Directory</h2>
-          <p className="mt-1 text-sm text-slate-500">View graduated students and manage their historic records.</p>
+          <p className="mt-1 text-sm text-slate-500">View passed-out students and their historic records.</p>
         </Link>
       </div>
 
@@ -576,8 +582,8 @@ export default function AdminSettings() {
               <Layers3 className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-bold text-slate-900">Class Master</h2>
-              <p className="text-sm text-slate-500">Create classes and batches.</p>
+              <h2 className="font-bold text-slate-900">Year / Class Master</h2>
+              <p className="text-sm text-slate-500">Keep only the college classes used in admissions and promotions.</p>
             </div>
           </div>
 
@@ -585,14 +591,14 @@ export default function AdminSettings() {
             <input
               required
               type="text"
-              placeholder="Class name"
+              placeholder="e.g. XI ARTS"
               className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
               value={classForm.name}
               onChange={(e) => setClassForm({ ...classForm, name: e.target.value })}
             />
             <input
               type="text"
-              placeholder="Batches (comma separated)"
+              placeholder="Optional batch names (comma separated)"
               className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
               value={classForm.batches}
               onChange={(e) => setClassForm({ ...classForm, batches: e.target.value })}
@@ -603,12 +609,12 @@ export default function AdminSettings() {
           </form>
 
           <div className="mt-6 space-y-3">
-            {classes.map((item) => (
+            {academicClasses.map((item) => (
               <div key={item.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                 <div>
                   <p className="font-semibold text-slate-900">{item.name}</p>
                   <p className="text-sm text-slate-500">
-                    {item.batch_names?.length ? item.batch_names.join(', ') : 'No batches yet'}
+                    {item.batch_names?.length ? item.batch_names.join(', ') : 'No extra batch names'}
                   </p>
                 </div>
                 <button
@@ -676,7 +682,7 @@ export default function AdminSettings() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-bold text-slate-900">Session Master</h2>
+              <h2 className="font-bold text-slate-900">Academic Session Master</h2>
               <p className="text-sm text-slate-500">Manage academic years/sessions.</p>
             </div>
           </div>
@@ -718,7 +724,7 @@ export default function AdminSettings() {
             </div>
             <div>
               <h2 className="font-bold text-slate-900">Stream Master</h2>
-              <p className="text-sm text-slate-500">Manage stream options.</p>
+              <p className="text-sm text-slate-500">Only Arts and Science are required for this college.</p>
             </div>
           </div>
 
@@ -737,7 +743,7 @@ export default function AdminSettings() {
           </form>
 
           <div className="mt-6 space-y-3">
-            {streams.map((stream) => (
+            {academicStreams.map((stream) => (
               <div key={stream.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                 <p className="font-semibold text-slate-900">{stream.name}</p>
                 <button
@@ -761,7 +767,7 @@ export default function AdminSettings() {
             </div>
             <div>
               <h2 className="font-bold text-slate-900">Student Account Search</h2>
-              <p className="text-sm text-slate-500">Search and manage student accounts, payments, and registration details.</p>
+              <p className="text-sm text-slate-500">Search and manage registration details, year/class, fee setup, and payment history.</p>
             </div>
           </div>
 
@@ -810,7 +816,7 @@ export default function AdminSettings() {
           {loadingAccounts && <p className="text-sm text-slate-500">Searching accounts...</p>}
           {!loadingAccounts && !selectedAccount && !searchQuery.trim() && (
             <div className="rounded-2xl border border-dashed border-slate-200 px-6 py-10 text-center text-slate-500">
-              Search for a student account to manage class, registration number, fee setup, payments, or delete records.
+              Search for a student account to manage year/class, registration number, fee setup, payments, or delete records.
             </div>
           )}
           {!loadingAccounts && !selectedAccount && searchQuery.trim() && accountResults.length === 0 && (

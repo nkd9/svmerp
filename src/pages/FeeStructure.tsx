@@ -20,6 +20,20 @@ interface Ledger {
   name: string;
 }
 
+const normalizeAcademicClassName = (value?: string) => (value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+
+const deriveStreamFromClassName = (className?: string) => {
+  const normalized = normalizeAcademicClassName(className);
+  if (normalized.includes('ARTS')) return 'Arts';
+  if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'Science';
+  return 'None';
+};
+
+const isAcademicCollegeClass = (className?: string) => {
+  const normalized = normalizeAcademicClassName(className);
+  return /^XI (ARTS|SC|SCIENCE)$/.test(normalized) || /^XII (ARTS|SC|SCIENCE)$/.test(normalized);
+};
+
 export default function FeeStructureSetup() {
   const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [classes, setClasses] = useState<ClassModel[]>([]);
@@ -37,6 +51,9 @@ export default function FeeStructureSetup() {
     class_id: '',
     stream: 'Science'
   });
+  const feeClassOptions = classes.filter((item) => isAcademicCollegeClass(item.name));
+  const selectedFormClass = classes.find((item) => String(item.id) === form.class_id);
+  const selectedApplyClass = classes.find((item) => String(item.id) === applyForm.class_id);
 
   const fetchInitialData = async () => {
     try {
@@ -51,9 +68,18 @@ export default function FeeStructureSetup() {
       if (clsRes.ok) {
         const classesData = await clsRes.json();
         setClasses(classesData);
-        if (classesData.length > 0) {
-          setForm(prev => ({ ...prev, class_id: classesData[0].id.toString() }));
-          setApplyForm(prev => ({ ...prev, class_id: classesData[0].id.toString() }));
+        const academicClasses = classesData.filter((item: ClassModel) => isAcademicCollegeClass(item.name));
+        if (academicClasses.length > 0) {
+          setForm(prev => ({
+            ...prev,
+            class_id: academicClasses[0].id.toString(),
+            stream: deriveStreamFromClassName(academicClasses[0].name)
+          }));
+          setApplyForm(prev => ({
+            ...prev,
+            class_id: academicClasses[0].id.toString(),
+            stream: deriveStreamFromClassName(academicClasses[0].name)
+          }));
         }
       }
       if (ledgersRes.ok) {
@@ -137,7 +163,7 @@ export default function FeeStructureSetup() {
     <div className="space-y-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Fee Structure Setup</h1>
-        <p className="text-slate-500">Configure global fees by academic year, class, and stream.</p>
+        <p className="text-slate-500">Set fee rules for each year and stream, then apply them to active students.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -156,19 +182,21 @@ export default function FeeStructureSetup() {
               </select>
             </div>
             <div>
-              <label className="text-sm font-semibold text-slate-700">Class (Year)</label>
-              <select value={form.class_id} onChange={e => setForm({ ...form, class_id: e.target.value })} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" required>
-                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <label className="text-sm font-semibold text-slate-700">Year / Class</label>
+              <select value={form.class_id} onChange={e => {
+                const classItem = classes.find((item) => String(item.id) === e.target.value);
+                setForm({ ...form, class_id: e.target.value, stream: deriveStreamFromClassName(classItem?.name) });
+              }} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" required>
+                {feeClassOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
               <label className="text-sm font-semibold text-slate-700">Stream</label>
-              <select value={form.stream} onChange={e => setForm({ ...form, stream: e.target.value })} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
+              <select value={deriveStreamFromClassName(selectedFormClass?.name) !== 'None' ? deriveStreamFromClassName(selectedFormClass?.name) : form.stream} onChange={e => setForm({ ...form, stream: e.target.value })} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" disabled={deriveStreamFromClassName(selectedFormClass?.name) !== 'None'}>
                 <option value="Science">Science</option>
                 <option value="Arts">Arts</option>
-                <option value="Commerce">Commerce</option>
-                <option value="None">None</option>
               </select>
+              <p className="mt-2 text-xs text-slate-500">Stream is derived from the selected class.</p>
             </div>
             <div>
               <label className="text-sm font-semibold text-slate-700">Fee Ledger</label>
@@ -188,7 +216,7 @@ export default function FeeStructureSetup() {
           <hr className="my-6 border-slate-100" />
           
           <h2 className="text-lg font-bold mb-4">Bulk Apply Fees</h2>
-          <p className="text-xs text-slate-500 mb-4">Select a specific session, class, and stream to automatically generate pending fee invoices for all active students in that group.</p>
+          <p className="text-xs text-slate-500 mb-4">Select a session and year/class to generate pending fee rows for all active students in that batch.</p>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-semibold text-slate-700">Session</label>
@@ -202,22 +230,23 @@ export default function FeeStructureSetup() {
               </select>
             </div>
             <div>
-              <label className="text-sm font-semibold text-slate-700">Class</label>
-              <select value={applyForm.class_id} onChange={e => setApplyForm({ ...applyForm, class_id: e.target.value })} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500">
-                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <label className="text-sm font-semibold text-slate-700">Year / Class</label>
+              <select value={applyForm.class_id} onChange={e => {
+                const classItem = classes.find((item) => String(item.id) === e.target.value);
+                setApplyForm({ ...applyForm, class_id: e.target.value, stream: deriveStreamFromClassName(classItem?.name) });
+              }} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500">
+                {feeClassOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
               <label className="text-sm font-semibold text-slate-700">Stream</label>
-              <select value={applyForm.stream} onChange={e => setApplyForm({ ...applyForm, stream: e.target.value })} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500">
+              <select value={deriveStreamFromClassName(selectedApplyClass?.name) !== 'None' ? deriveStreamFromClassName(selectedApplyClass?.name) : applyForm.stream} onChange={e => setApplyForm({ ...applyForm, stream: e.target.value })} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500" disabled={deriveStreamFromClassName(selectedApplyClass?.name) !== 'None'}>
                 <option value="Science">Science</option>
                 <option value="Arts">Arts</option>
-                <option value="Commerce">Commerce</option>
-                <option value="None">None</option>
               </select>
             </div>
             <button onClick={handleApply} className="w-full flex justify-center items-center gap-2 py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700">
-              <CheckCircle size={18} /> Apply To Students
+              <CheckCircle size={18} /> Apply to Active Students
             </button>
           </div>
         </div>

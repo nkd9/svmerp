@@ -118,7 +118,7 @@ export default function Reports() {
 
   const handleSendReminder = (item: any) => {
     const message = encodeURIComponent(
-      `Dear ${item.name}, total fee ${formatCurrency(Number(item.total_amount || 0))}, paid ${formatCurrency(Number(item.paid_amount || 0))}, pending ${formatCurrency(Number(item.pending_amount || 0))}. Please contact the school office.`,
+      `Dear ${item.name}, total fee ${formatCurrency(Number(item.total_amount || 0))}, paid ${formatCurrency(Number(item.paid_amount || 0))}, pending ${formatCurrency(Number(item.pending_amount || 0))}. Please contact the college office.`,
     );
     window.open(`https://wa.me/?text=${message}`, '_blank', 'noopener,noreferrer');
   };
@@ -135,8 +135,8 @@ export default function Reports() {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Reports & Analytics</h1>
-          <p className="text-slate-500">Use quick exports here or open the full fee reporting workspace.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
+          <p className="text-slate-500">Use quick exports here or open the full dues and collection reporting workspace.</p>
         </div>
         <button
           onClick={() => navigate('/fees/reports')}
@@ -155,7 +155,7 @@ export default function Reports() {
             </div>
             <h3 className="font-bold text-slate-900">Due Reports</h3>
           </div>
-          <p className="mb-3 text-sm text-slate-500">Export student-wise outstanding balances from the current summary.</p>
+          <p className="mb-3 text-sm text-slate-500">Export student-wise outstanding balances from the current fee summary.</p>
           <p className="mb-6 text-sm font-semibold text-slate-700">{pendingFees.length} students with pending dues</p>
           <div className="flex gap-3">
             <button
@@ -207,7 +207,7 @@ export default function Reports() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-100 p-6 md:flex-row md:items-center md:justify-between">
-          <h3 className="font-bold text-slate-900">Fee Pending List</h3>
+          <h3 className="font-bold text-slate-900">Pending Due List</h3>
           <div className="relative w-full md:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input

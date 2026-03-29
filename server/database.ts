@@ -333,21 +333,26 @@ async function seedDatabase() {
     });
   }
 
-  for (const className of defaultClasses) {
-    const classDoc = await ensureDocument(
-      ClassModel,
-      { name: className },
-      { name: className, batch_names: [] },
-      "classes",
-    );
+  const classCount = await ClassModel.countDocuments();
+  const subjectCount = await Subject.countDocuments();
 
-    for (const subjectName of defaultSubjects) {
-      await ensureDocument(
-        Subject,
-        { name: subjectName, class_id: classDoc.id },
-        { name: subjectName, class_id: classDoc.id },
-        "subjects",
+  if (classCount === 0 && subjectCount === 0) {
+    for (const className of defaultClasses) {
+      const classDoc = await ensureDocument(
+        ClassModel,
+        { name: className },
+        { name: className, batch_names: [] },
+        "classes",
       );
+
+      for (const subjectName of defaultSubjects) {
+        await ensureDocument(
+          Subject,
+          { name: subjectName, class_id: classDoc.id },
+          { name: subjectName, class_id: classDoc.id },
+          "subjects",
+        );
+      }
     }
   }
 

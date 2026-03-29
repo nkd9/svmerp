@@ -51,6 +51,7 @@ type ReportRow = Record<string, string | number>;
 export default function FeeReports() {
   const [fees, setFees] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [activeReportTitle, setActiveReportTitle] = useState('');
@@ -58,6 +59,10 @@ export default function FeeReports() {
   const [dailyCollectionDate, setDailyCollectionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [oldDueSession, setOldDueSession] = useState('');
   const [selectedClassForDue, setSelectedClassForDue] = useState('');
+  const [promotedDueFilters, setPromotedDueFilters] = useState({
+    currentClass: '',
+    currentSession: '',
+  });
   const [transactionFilters, setTransactionFilters] = useState({
     start: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd'),
@@ -71,12 +76,14 @@ export default function FeeReports() {
   useEffect(() => {
     const fetchData = async () => {
       const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` };
-      const [feesRes, studentsRes] = await Promise.all([
+      const [feesRes, studentsRes, classesRes] = await Promise.all([
         fetch('/api/fees', { headers }),
         fetch('/api/students', { headers }),
+        fetch('/api/classes', { headers }),
       ]);
       setFees(await feesRes.json());
       setStudents(await studentsRes.json());
+      setClasses(await classesRes.json());
       setLoading(false);
     };
 
@@ -151,6 +158,10 @@ export default function FeeReports() {
   const classOptions = useMemo(
     () => (Array.from(new Set(students.map((student) => String(student.class_name || '')).filter(Boolean))) as string[]).sort((a, b) => a.localeCompare(b)),
     [students],
+  );
+  const classNameById = useMemo(
+    () => new Map(classes.map((classItem) => [Number(classItem.id), String(classItem.name || '')])),
+    [classes],
   );
 
   const openReport = (title: string, rows: ReportRow[]) => {
@@ -295,6 +306,88 @@ export default function FeeReports() {
     openReport(`Due By Class Report${selectedClassForDue ? ` - ${selectedClassForDue}` : ''}`, rows);
   };
 
+  const generatePromotedDueReport = () => {
+    const promotedStudentDueMap = new Map<
+      number,
+      {
+        reg_no: string;
+        name: string;
+        phone: string;
+        current_class: string;
+        current_session: string;
+        previous_classes: Set<string>;
+        previous_sessions: Set<string>;
+        fee_types: Set<string>;
+        due_amount: number;
+      }
+    >();
+
+    feesWithStudent
+      .filter((fee) => fee.status === 'pending' && fee.student)
+      .forEach((fee) => {
+        const student = fee.student;
+        const feeClassName = classNameById.get(Number(fee.class_id)) || '';
+        const currentClassName = String(student.class_name || '');
+        const currentSession = String(student.session || '');
+        const feeSession = String(fee.academic_session || '');
+        const isPromotedDue =
+          (fee.class_id && student.class_id && Number(fee.class_id) !== Number(student.class_id)) ||
+          (feeSession && currentSession && feeSession !== currentSession);
+
+        if (!isPromotedDue) {
+          return;
+        }
+
+        if (promotedDueFilters.currentClass && currentClassName !== promotedDueFilters.currentClass) {
+          return;
+        }
+
+        if (promotedDueFilters.currentSession && currentSession !== promotedDueFilters.currentSession) {
+          return;
+        }
+
+        const current = promotedStudentDueMap.get(Number(student.id)) || {
+          reg_no: student.reg_no || '',
+          name: student.name || '',
+          phone: student.phone || '',
+          current_class: currentClassName,
+          current_session: currentSession,
+          previous_classes: new Set<string>(),
+          previous_sessions: new Set<string>(),
+          fee_types: new Set<string>(),
+          due_amount: 0,
+        };
+
+        if (feeClassName) {
+          current.previous_classes.add(feeClassName);
+        }
+        if (feeSession) {
+          current.previous_sessions.add(feeSession);
+        }
+        if (fee.type) {
+          current.fee_types.add(String(fee.type));
+        }
+        current.due_amount += Number(fee.amount || 0);
+        promotedStudentDueMap.set(Number(student.id), current);
+      });
+
+    const rows = Array.from(promotedStudentDueMap.values())
+      .map((item) => ({
+        'Registration No': item.reg_no,
+        'Student Name': item.name,
+        'Phone Number': item.phone,
+        'Current Class': item.current_class,
+        'Current Session': item.current_session,
+        'Previous Class': Array.from(item.previous_classes).join(', '),
+        'Previous Session': Array.from(item.previous_sessions).join(', '),
+        'Pending Fee Ledgers': Array.from(item.fee_types).join(', '),
+        'Pending Amount': item.due_amount,
+      }))
+      .sort((a, b) => (a['Current Class'] || '').localeCompare(b['Current Class'] || '') || (a['Student Name'] || '').localeCompare(b['Student Name'] || ''));
+
+    openReport('Promoted Students Due Report', rows);
+  };
+
   const generateTransactionReport = () => {
     const rows = feesWithStudent
       .filter((fee) => {
@@ -401,6 +494,53 @@ export default function FeeReports() {
               <Download className="h-4 w-4" />
               Generate Admission Due
             </button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
+            <History className="h-5 w-5" />
+            <div>
+              <h2 className="text-lg font-bold">Promoted Students Due Report</h2>
+              <p className="text-sm text-indigo-100">Pending dues carried by students after moving to the next class/session.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 p-6 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Current Class</label>
+              <select
+                value={promotedDueFilters.currentClass}
+                onChange={(e) => setPromotedDueFilters((prev) => ({ ...prev, currentClass: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
+              >
+                <option value="">All Current Classes</option>
+                {classOptions.map((className) => (
+                  <option key={className} value={className}>{className}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Current Session</label>
+              <select
+                value={promotedDueFilters.currentSession}
+                onChange={(e) => setPromotedDueFilters((prev) => ({ ...prev, currentSession: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
+              >
+                <option value="">All Current Sessions</option>
+                {sessionOptions.map((session) => (
+                  <option key={session} value={session}>{session}</option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <button
+                onClick={generatePromotedDueReport}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:-translate-y-0.5"
+              >
+                <Download className="h-4 w-4" />
+                Generate Promoted Due Report
+              </button>
+            </div>
           </div>
         </section>
 

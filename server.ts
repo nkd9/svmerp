@@ -65,6 +65,77 @@ function toNumber(value: unknown) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+function normalizeAcademicClassName(value: unknown) {
+  return String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+function getAcademicSessionStartYear(value: unknown) {
+  const match = /^(\d{4})-\d{4}$/.exec(String(value || "").trim());
+  return match ? Number(match[1]) : 0;
+}
+
+function getCollegeYearRank(className: unknown) {
+  const normalized = normalizeAcademicClassName(className);
+  if (/\b(XI|1ST YEAR|FIRST YEAR)\b/.test(normalized)) return 1;
+  if (/\b(XII|2ND YEAR|SECOND YEAR)\b/.test(normalized)) return 2;
+  return 0;
+}
+
+function getCollegeStreamName(className: unknown) {
+  const normalized = normalizeAcademicClassName(className);
+  if (normalized.includes("ARTS")) return "ARTS";
+  if (normalized.includes("SC") || normalized.includes("SCIENCE")) return "SCIENCE";
+  return "";
+}
+
+function getCollegeStreamLabel(className: unknown) {
+  const stream = getCollegeStreamName(className);
+  if (stream === "ARTS") return "Arts";
+  if (stream === "SCIENCE") return "Science";
+  return "None";
+}
+
+function isAcademicCollegeClass(className: unknown) {
+  return Boolean(getCollegeYearRank(className) && getCollegeStreamName(className));
+}
+
+function isOlderAcademicBucket(
+  candidateSession: unknown,
+  candidateClassName: unknown,
+  currentSession: unknown,
+  currentClassName: unknown,
+) {
+  const candidateYear = getAcademicSessionStartYear(candidateSession);
+  const currentYear = getAcademicSessionStartYear(currentSession);
+  if (candidateYear && currentYear && candidateYear < currentYear) {
+    return true;
+  }
+  if (candidateYear && currentYear && candidateYear > currentYear) {
+    return false;
+  }
+
+  const candidateRank = getCollegeYearRank(candidateClassName);
+  const currentRank = getCollegeYearRank(currentClassName);
+  const candidateStream = getCollegeStreamName(candidateClassName);
+  const currentStream = getCollegeStreamName(currentClassName);
+
+  if (candidateRank && currentRank) {
+    if (candidateStream && currentStream && candidateStream === currentStream) {
+      return candidateRank < currentRank;
+    }
+    return candidateRank < currentRank;
+  }
+
+  return false;
+}
+
+function getPromotableTargetClassName(className: unknown) {
+  const normalized = normalizeAcademicClassName(className);
+  if (normalized === "XI ARTS") return "XII ARTS";
+  if (normalized === "XI SC" || normalized === "XI SCIENCE") return "XII SC";
+  return "";
+}
+
 function isCloudinaryConfigured() {
   return Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
 }
@@ -77,7 +148,26 @@ function createCloudinarySignature(params: Record<string, string | number>) {
   return crypto.createHash("sha1").update(`${toSign}${CLOUDINARY_API_SECRET}`).digest("hex");
 }
 
-function buildStudentPayload(body: any, existingStatus?: string) {
+async function buildStudentPayload(body: any, existingStatus?: string) {
+  const classId = toNumber(body.class_id);
+  const classDoc = classId ? await ClassModel.findOne({ id: classId }).lean() : null;
+  const className = classDoc?.name || "";
+  const normalizedClassName = normalizeAcademicClassName(className);
+  const derivedStream = getCollegeStreamLabel(className);
+  const requestedStatus = body.status || existingStatus || "active";
+
+  if (classId && !classDoc) {
+    throw new Error("Selected class was not found.");
+  }
+
+  if (requestedStatus !== "alumni" && normalizedClassName === "PASSED OUT") {
+    throw new Error("Passed out class can only be used for alumni records.");
+  }
+
+  if (requestedStatus !== "alumni" && className && !isAcademicCollegeClass(className)) {
+    throw new Error("Students can only be admitted into XI/XII Arts or Science classes.");
+  }
+
   return {
     name: body.name,
     father_name: body.father_name || "",
@@ -97,12 +187,12 @@ function buildStudentPayload(body: any, existingStatus?: string) {
     dob: body.dob || "",
     age: body.age || "",
     gender: body.gender || "Male",
-    class_id: toNumber(body.class_id),
+    class_id: classId,
     section: body.section || "",
     session: body.session || "",
     category: body.category || "General",
-    student_group: body.student_group || "None",
-    stream: body.stream || "None",
+    student_group: derivedStream !== "None" ? derivedStream : body.student_group || "None",
+    stream: derivedStream !== "None" ? derivedStream : body.stream || "None",
     occupation: body.occupation || "",
     admission_date: body.admission_date || dateString(),
     reg_no: body.reg_no,
@@ -279,7 +369,7 @@ async function startServer() {
       const id = await getNextSequence("students");
       const payload = {
         id,
-        ...buildStudentPayload(req.body),
+        ...(await buildStudentPayload(req.body)),
       };
 
       const created = await Student.create(payload);
@@ -306,7 +396,7 @@ async function startServer() {
     try {
       const updated = await Student.findOneAndUpdate(
         { id: toNumber(req.params.id) },
-        buildStudentPayload(req.body, "active"),
+        await buildStudentPayload(req.body, "active"),
         { returnDocument: "after", runValidators: true },
       ).lean();
 
@@ -334,6 +424,114 @@ async function startServer() {
 
   app.post("/api/fees", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      const classDocs = await ClassModel.find().lean();
+      const classNameById = new Map(classDocs.map((item) => [item.id, item.name]));
+      const pendingFeeIds = Array.isArray(req.body.pending_fee_ids)
+        ? req.body.pending_fee_ids.map((value: unknown) => toNumber(value)).filter((value: number) => value > 0)
+        : [];
+      const paymentStatus = req.body.status || "paid";
+      const paymentDate = req.body.date || dateString();
+      const paymentMode = req.body.mode || "Cash";
+      const paymentReference = req.body.reference_no || "";
+      const paymentDiscount = toNumber(req.body.discount);
+      const paymentAmount = toNumber(req.body.amount);
+
+      if (pendingFeeIds.length > 0 && paymentStatus !== "pending") {
+        const pendingFees = await Fee.find({
+          id: { $in: pendingFeeIds },
+          student_id: toNumber(req.body.student_id),
+          status: "pending",
+        })
+          .sort({ id: 1 })
+          .lean();
+
+        if (pendingFees.length !== pendingFeeIds.length) {
+          return res.status(404).json({ error: "One or more pending fees could not be found." });
+        }
+
+        const totalPendingAmount = pendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+        if (paymentAmount <= 0 || paymentAmount > totalPendingAmount) {
+          return res.status(400).json({ error: "Payment amount must be greater than 0 and cannot exceed the selected pending dues." });
+        }
+
+        if (pendingFees.length > 1 && paymentDiscount > 0) {
+          return res.status(400).json({ error: "Discount can only be applied when settling one pending fee at a time." });
+        }
+
+        const primaryFee = pendingFees[0];
+        const otherPendingFees = await Fee.find({
+          student_id: toNumber(req.body.student_id),
+          status: "pending",
+          id: { $nin: pendingFeeIds },
+        }).lean();
+        const primaryClassName = classNameById.get(Number(primaryFee.class_id)) || "";
+        const blockingOlderDue = otherPendingFees.find((fee) =>
+          isOlderAcademicBucket(
+            fee.academic_session,
+            classNameById.get(Number(fee.class_id)) || "",
+            primaryFee.academic_session,
+            primaryClassName,
+          ),
+        );
+
+        if (blockingOlderDue) {
+          return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
+        }
+
+        const updatedFee = await Fee.findOneAndUpdate(
+          { id: primaryFee.id },
+          {
+            $set: {
+              amount: paymentAmount,
+              date: paymentDate,
+              status: paymentStatus,
+              discount: paymentDiscount,
+              mode: paymentMode,
+              reference_no: paymentReference,
+            },
+          },
+          { returnDocument: "after" },
+        ).lean();
+
+        if (!updatedFee) {
+          return res.status(404).json({ error: "Pending fee could not be updated." });
+        }
+
+        if (pendingFees.length > 1) {
+          const remainingIds = pendingFees.slice(1).map((fee) => fee.id);
+          await Fee.updateMany(
+            { id: { $in: remainingIds } },
+            {
+              $set: {
+                date: paymentDate,
+                status: paymentStatus,
+                mode: paymentMode,
+                reference_no: paymentReference,
+              },
+            },
+          );
+        }
+
+        const transactionId = await getNextSequence("transactions");
+        await Transaction.create({
+          id: transactionId,
+          student_id: updatedFee.student_id,
+          amount: paymentAmount,
+          type: "credit",
+          category: "fee",
+          date: paymentDate,
+          description: `Pending fee settled: ${updatedFee.type}${paymentMode ? ` (${paymentMode})` : ""}`,
+        });
+
+        return res.json({
+          id: updatedFee.id,
+          fee: {
+            ...stripMongoFields(updatedFee),
+            student_name: (await Student.findOne({ id: updatedFee.student_id }).lean())?.name || "Unknown Student",
+          },
+        });
+      }
+
       const feeId = await getNextSequence("fees");
       const currentSession = req.body.academic_session || "";
       const currentClassId = toNumber(req.body.class_id) || 0;
@@ -342,15 +540,21 @@ async function startServer() {
       if (req.body.status !== "pending") {
         const student = await Student.findOne({ id: toNumber(req.body.student_id) }).lean();
         if (student) {
-          // Find any pending fee for this student that belongs to an older session or older class
-          // Assuming classes are "1" (1st year) and "2" (2nd year).
-          const oldDues = await Fee.findOne({
+          const currentClassName = classNameById.get(currentClassId) || student.class_name || "";
+          const oldDues = await Fee.find({
             student_id: student.id,
             status: "pending",
-            class_id: { $lt: currentClassId, $gt: 0 }
           }).lean();
+          const hasBlockingOlderDue = oldDues.some((fee) =>
+            isOlderAcademicBucket(
+              fee.academic_session,
+              classNameById.get(Number(fee.class_id)) || "",
+              currentSession,
+              currentClassName,
+            ),
+          );
 
-          if (oldDues) {
+          if (hasBlockingOlderDue) {
             return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
           }
         }
@@ -361,13 +565,13 @@ async function startServer() {
         student_id: toNumber(req.body.student_id),
         academic_session: currentSession,
         class_id: currentClassId,
-        amount: toNumber(req.body.amount),
+        amount: paymentAmount,
         type: req.body.type || "Fee Collection",
-        date: req.body.date || dateString(),
-        status: req.body.status || "paid",
-        discount: toNumber(req.body.discount),
-        mode: req.body.mode || "Cash",
-        reference_no: req.body.reference_no || "",
+        date: paymentDate,
+        status: paymentStatus,
+        discount: paymentDiscount,
+        mode: paymentMode,
+        reference_no: paymentReference,
         bill_no: req.body.bill_no,
       };
 
@@ -1103,12 +1307,20 @@ async function startServer() {
 
   app.post("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      const classId = toNumber(req.body.class_id);
+      const classDoc = await ClassModel.findOne({ id: classId }).lean();
+      if (!classDoc) {
+        return res.status(404).json({ error: "Class not found" });
+      }
+
+      const derivedStream = getCollegeStreamLabel(classDoc.name);
+      const stream = derivedStream !== "None" ? derivedStream : String(req.body.stream || "None");
       const id = await getNextSequence("feeStructures");
       const record = await FeeStructure.create({
         id,
         academic_session: req.body.academic_session,
-        class_id: toNumber(req.body.class_id),
-        stream: req.body.stream,
+        class_id: classId,
+        stream,
         fee_type: req.body.fee_type,
         amount: toNumber(req.body.amount),
       });
@@ -1129,10 +1341,17 @@ async function startServer() {
 
   app.post("/api/admin/fees/apply-structure", authenticateToken, requireAdmin, async (req, res) => {
     try {
-      const { academic_session, class_id, stream } = req.body;
+      const { academic_session } = req.body;
+      const classId = toNumber(req.body.class_id);
+      const classDoc = await ClassModel.findOne({ id: classId }).lean();
+      if (!classDoc) {
+        return res.status(404).json({ error: "Class not found" });
+      }
+
+      const stream = getCollegeStreamLabel(classDoc.name) !== "None" ? getCollegeStreamLabel(classDoc.name) : String(req.body.stream || "None");
       const structures = await FeeStructure.find({
         academic_session,
-        class_id: toNumber(class_id),
+        class_id: classId,
         stream,
       }).lean();
 
@@ -1142,7 +1361,7 @@ async function startServer() {
 
       const students = await Student.find({
         status: "active",
-        class_id: toNumber(class_id),
+        class_id: classId,
         stream,
       }).lean();
 
@@ -1190,12 +1409,41 @@ async function startServer() {
         return res.status(400).json({ error: "No students provided" });
       }
 
+      const students = await Student.find({ id: { $in: student_ids } }).lean();
+      if (students.length !== student_ids.length) {
+        return res.status(404).json({ error: "One or more students could not be found" });
+      }
+
+      const classes = await ClassModel.find().lean();
+      const classNameById = new Map(classes.map((item) => [item.id, item.name]));
+
       if (is_graduation) {
+        const invalidGraduates = students.filter((student) => getCollegeYearRank(classNameById.get(student.class_id) || "") !== 2);
+        if (invalidGraduates.length > 0) {
+          return res.status(400).json({ error: "Only 2nd year students can be graduated to alumni." });
+        }
+
         await Student.updateMany(
           { id: { $in: student_ids } },
           { $set: { status: "alumni" } }
         );
       } else {
+        const targetClassName = classNameById.get(toNumber(target_class_id)) || "";
+        if (!targetClassName) {
+          return res.status(400).json({ error: "Target class is required." });
+        }
+
+        for (const student of students) {
+          const currentClassName = classNameById.get(student.class_id) || "";
+          const expectedTarget = getPromotableTargetClassName(currentClassName);
+          if (!expectedTarget) {
+            return res.status(400).json({ error: `Students in ${currentClassName || "this class"} cannot be promoted automatically.` });
+          }
+          if (normalizeAcademicClassName(targetClassName) !== normalizeAcademicClassName(expectedTarget)) {
+            return res.status(400).json({ error: `Promotion from ${currentClassName} is only allowed to ${expectedTarget}.` });
+          }
+        }
+
         await Student.updateMany(
           { id: { $in: student_ids } },
           { $set: { class_id: toNumber(target_class_id), session: target_session } }

@@ -1,38 +1,10 @@
-import { useState, useEffect } from 'react';
-import { 
-  Users, 
-  TrendingUp, 
-  IndianRupee, 
-  AlertCircle, 
-  Home, 
-  ArrowUpRight, 
-  ArrowDownRight
-} from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  AreaChart,
-  Area
-} from 'recharts';
+import { useEffect, useMemo, useState } from 'react';
+import { Users, IndianRupee, AlertCircle, Home, ArrowRight, GraduationCap, ReceiptIndianRupee, FileBarChart2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { Link } from 'react-router-dom';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
-
-const data = [
-  { name: 'Jan', fees: 4000, students: 240 },
-  { name: 'Feb', fees: 3000, students: 139 },
-  { name: 'Mar', fees: 2000, students: 980 },
-  { name: 'Apr', fees: 2780, students: 390 },
-  { name: 'May', fees: 1890, students: 480 },
-  { name: 'Jun', fees: 2390, students: 380 },
-  { name: 'Jul', fees: 3490, students: 430 },
-];
 
 export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
@@ -40,141 +12,175 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetch('/api/stats', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
     })
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         setStats(data);
         setLoading(false);
       });
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center h-64">Loading...</div>;
+  const overviewCards = useMemo(() => {
+    if (!stats) return [];
 
-  const statCards = [
-    { name: 'Total Students', value: stats.totalStudents, icon: Users, color: 'bg-blue-500', trend: '+12%', positive: true },
-    { name: 'Today Collection', value: formatCurrency(Number(stats.todayFees || 0)), icon: IndianRupee, color: 'bg-emerald-500', trend: '+5%', positive: true },
-    { name: 'Pending Fees', value: formatCurrency(Number(stats.pendingFees || 0)), icon: AlertCircle, color: 'bg-rose-500', trend: '-2%', positive: false },
-    { name: 'Hostel Students', value: stats.hostelStudents, icon: Home, color: 'bg-amber-500', trend: '+8%', positive: true },
-  ];
+    const alumniCount = Math.max(Number(stats.totalStudents || 0) - Number(stats.activeStudents || 0), 0);
+    return [
+      { name: 'Active Students', value: Number(stats.activeStudents || 0), icon: Users, color: 'bg-blue-500' },
+      { name: "Today's Collection", value: formatCurrency(Number(stats.todayFees || 0)), icon: IndianRupee, color: 'bg-emerald-500' },
+      { name: 'Pending Dues', value: formatCurrency(Number(stats.pendingFees || 0)), icon: AlertCircle, color: 'bg-rose-500' },
+      { name: 'Alumni', value: alumniCount, icon: GraduationCap, color: 'bg-amber-500' },
+    ];
+  }, [stats]);
+
+  if (loading) return <div className="flex items-center justify-center h-64">Loading...</div>;
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard Overview</h1>
-        <p className="text-slate-500">Welcome back! Here's what's happening today.</p>
+      <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-900 px-6 py-7 text-white shadow-sm">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-200">SVM College ERP</p>
+            <h1 className="mt-2 text-3xl font-bold">Arts and Science college operations in one place</h1>
+            <p className="mt-3 max-w-2xl text-sm text-slate-200">
+              Use this dashboard to track current students, today&apos;s collections, pending dues, and the latest office activity.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Link to="/students" className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20">
+              Open Admissions
+            </Link>
+            <Link to="/fees" className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20">
+              Open Fees & Dues
+            </Link>
+            <Link to="/student-promotion" className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20">
+              Promotion & Graduation
+            </Link>
+            <Link to="/fees/reports" className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20">
+              Due Reports
+            </Link>
+          </div>
+        </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat) => (
-          <div key={stat.name} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className="flex items-center justify-between mb-4">
-              <div className={`${stat.color} p-3 rounded-xl text-white`}>
-                <stat.icon className="w-6 h-6" />
-              </div>
-              <div className={`flex items-center gap-1 text-sm font-medium ${stat.positive ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {stat.positive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                {stat.trend}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+        {overviewCards.map((card) => (
+          <div key={card.name} className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className={`${card.color} rounded-2xl p-3 text-white`}>
+                <card.icon className="h-6 w-6" />
               </div>
             </div>
-            <h3 className="text-slate-500 text-sm font-medium">{stat.name}</h3>
-            <p className="text-2xl font-bold text-slate-900 mt-1">{stat.value}</p>
+            <p className="mt-4 text-sm font-medium text-slate-500">{card.name}</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{card.value}</p>
           </div>
         ))}
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-bold text-slate-900">Fee Collection Trend</h3>
-            <select className="bg-slate-50 border-none rounded-lg text-sm px-3 py-1.5">
-              <option>Last 6 Months</option>
-              <option>Last Year</option>
-            </select>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
-                <defs>
-                  <linearGradient id="colorFees" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
-                <Tooltip 
-                  contentStyle={{backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                />
-                <Area type="monotone" dataKey="fees" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorFees)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-bold text-slate-900">Student Enrollment</h3>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 bg-indigo-500 rounded-full"></span>
-              <span className="text-xs text-slate-500">New Admissions</span>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+              <ReceiptIndianRupee className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900">Fee Desk</h2>
+              <p className="text-sm text-slate-500">Collect fees, clear dues, and print receipts.</p>
             </div>
           </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
-                <Tooltip 
-                   contentStyle={{backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                />
-                <Bar dataKey="students" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={32} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="mt-5 space-y-3 text-sm text-slate-600">
+            <p>Pending dues right now: <span className="font-semibold text-rose-600">{formatCurrency(Number(stats.pendingFees || 0))}</span></p>
+            <p>Today&apos;s receipts: <span className="font-semibold text-emerald-600">{formatCurrency(Number(stats.todayFees || 0))}</span></p>
+          </div>
+          <Link to="/fees" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-700">
+            Open fee desk
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
+              <Users className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900">Admissions Desk</h2>
+              <p className="text-sm text-slate-500">Current-year students only, class-wise filtering, and quick edits.</p>
+            </div>
+          </div>
+          <div className="mt-5 space-y-3 text-sm text-slate-600">
+            <p>Active students: <span className="font-semibold text-slate-900">{Number(stats.activeStudents || 0)}</span></p>
+            <p>Graduated / alumni records: <span className="font-semibold text-slate-900">{Math.max(Number(stats.totalStudents || 0) - Number(stats.activeStudents || 0), 0)}</span></p>
+          </div>
+          <Link to="/students" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-700">
+            Open admissions
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-amber-50 p-3 text-amber-600">
+              <FileBarChart2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900">Office Shortcuts</h2>
+              <p className="text-sm text-slate-500">Go straight to dues, promotions, and reports.</p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3">
+            <Link to="/fees/reports" className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">Open due reports</Link>
+            <Link to="/student-promotion" className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">Promote 1st year students</Link>
+            <Link to="/alumni" className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">View alumni records</Link>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-          <h3 className="font-bold text-slate-900">Recent Transactions</h3>
+      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        <div className="border-b border-slate-100 p-6">
+          <h3 className="font-bold text-slate-900">Recent Financial Activity</h3>
+          <p className="mt-1 text-sm text-slate-500">Latest receipts and fee updates recorded in the office.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">Transaction ID</th>
-                <th className="px-6 py-4 font-semibold">Student ID</th>
+              <tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                <th className="px-6 py-4 font-semibold">Receipt / Txn</th>
                 <th className="px-6 py-4 font-semibold">Student</th>
-                <th className="px-6 py-4 font-semibold">Phone Number</th>
+                <th className="px-6 py-4 font-semibold">Phone</th>
                 <th className="px-6 py-4 font-semibold">Class</th>
-                <th className="px-6 py-4 font-semibold">Fee Ledger</th>
+                <th className="px-6 py-4 font-semibold">Entry</th>
                 <th className="px-6 py-4 font-semibold">Amount</th>
                 <th className="px-6 py-4 font-semibold">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {stats.recentTransactions.map((tx: any) => (
-                <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-semibold text-slate-900">TX-{tx.id}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{tx.student_id}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-900">{tx.student_name}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{tx.phone || '-'}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{tx.class_name || '-'}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{tx.fee_type || '-'}</td>
-                  <td className={`px-6 py-4 text-sm font-bold ${tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {tx.type === 'credit' ? '+' : '-'}{formatCurrency(Number(tx.amount))}
+              {(stats.recentTransactions || []).length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                    No recent financial activity found.
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(tx.date), 'MMM dd, yyyy')}</td>
                 </tr>
-              ))}
+              ) : (
+                stats.recentTransactions.map((tx: any) => (
+                  <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-semibold text-slate-900">TX-{tx.id}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-slate-900">{tx.student_name}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{tx.phone || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{tx.class_name || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{tx.fee_type || tx.description || '-'}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-emerald-600">{formatCurrency(Number(tx.amount || 0))}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{tx.date ? format(new Date(tx.date), 'dd MMM yyyy') : '-'}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
+        Current working model: <span className="font-semibold text-slate-900">XI Arts, XII Arts, XI Science, XII Science</span>. Promotions move from first year to second year within the same stream, and passed-out second-year students move to alumni.
       </div>
     </div>
   );

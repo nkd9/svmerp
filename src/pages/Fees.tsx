@@ -28,10 +28,11 @@ export default function Fees() {
   const [editFormData, setEditFormData] = useState({ amount: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+  const [selectedPendingFeeId, setSelectedPendingFeeId] = useState('');
   const [formData, setFormData] = useState({
     student_id: '',
     amount: '',
-    type: 'Fee Collection',
+    type: 'Admission Fee',
     date: format(new Date(), 'yyyy-MM-dd'),
     status: 'paid',
     discount: '0',
@@ -68,17 +69,21 @@ export default function Fees() {
       alert('Only admin can modify financial information.');
       return;
     }
+    const selectedPendingFee = fees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
     const res = await fetch('/api/fees', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify(formData)
+      body: JSON.stringify({
+        ...formData,
+        pending_fee_ids: selectedPendingFee ? [selectedPendingFee.id] : [],
+      })
     });
     if (res.ok) {
       const createdFee = await res.json();
-      const printableFee = {
+      const printableFee = createdFee.fee || {
         id: createdFee.id,
         student_id: Number(formData.student_id),
         student_name: selectedStudent?.name || '',
@@ -95,8 +100,9 @@ export default function Fees() {
       setIsModalOpen(false);
       fetchData();
       setStudentSearch('');
+      setSelectedPendingFeeId('');
       setFormData({
-        student_id: '', amount: '', type: 'Fee Collection',
+        student_id: '', amount: '', type: ledgers[0]?.name || 'Admission Fee',
         date: format(new Date(), 'yyyy-MM-dd'), status: 'paid',
         discount: '0', mode: 'Cash', reference_no: '',
         bill_no: `BILL-${Date.now()}`
@@ -154,8 +160,13 @@ export default function Fees() {
     );
   }, [fees, searchQuery]);
 
+  const now = new Date();
   const totalCollected = fees
-    .filter((fee) => fee.status === 'paid')
+    .filter((fee) => {
+      if (fee.status !== 'paid') return false;
+      const feeDate = new Date(fee.date);
+      return feeDate.getFullYear() === now.getFullYear() && feeDate.getMonth() === now.getMonth();
+    })
     .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
   const pendingAmount = fees
     .filter((fee) => fee.status === 'pending')
@@ -164,6 +175,12 @@ export default function Fees() {
     .filter((fee) => fee.status === 'paid' && fee.date === format(new Date(), 'yyyy-MM-dd'))
     .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
   const selectedStudent = students.find((student) => String(student.id) === formData.student_id);
+  const selectedStudentPendingFees = selectedStudent
+    ? fees
+        .filter((fee) => fee.student_id === selectedStudent.id && fee.status === 'pending')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    : [];
+  const selectedPendingFee = selectedStudentPendingFees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
   const matchingStudents = students.filter((student) => {
     if (!studentSearch.trim()) {
       return true;
@@ -188,9 +205,14 @@ export default function Fees() {
         .reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
     : 0;
   const selectedStudentDueAmount = Math.max(selectedStudentTotalFee - selectedStudentPaidAmount, 0);
+  const selectedStudentPendingTotal = selectedStudentPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
 
   const handleStudentSelect = (studentId: string) => {
     const student = students.find((item) => String(item.id) === studentId);
+    const pendingFeesForStudent = fees
+      .filter((fee) => fee.student_id === student?.id && fee.status === 'pending')
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const firstPendingFee = pendingFeesForStudent[0];
     const totalFee = student
       ? Number(student.admission_fee || 0) +
         Number(student.coaching_fee || 0) +
@@ -205,19 +227,35 @@ export default function Fees() {
       : 0;
     const dueAmount = Math.max(totalFee - paidAmount, 0);
 
+    setSelectedPendingFeeId(firstPendingFee ? String(firstPendingFee.id) : '');
     setFormData({
       ...formData,
       student_id: studentId,
       discount: '0',
-      amount: dueAmount ? String(dueAmount) : '',
+      amount: firstPendingFee ? String(firstPendingFee.amount || 0) : dueAmount ? String(dueAmount) : '',
+      type: firstPendingFee?.type || formData.type,
       reference_no: '',
     });
     setStudentSearch(student ? `${student.name} (${student.reg_no})` : '');
   };
 
+  const handlePendingFeeChange = (feeId: string) => {
+    setSelectedPendingFeeId(feeId);
+    const fee = selectedStudentPendingFees.find((item) => String(item.id) === feeId);
+    if (!fee) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      type: fee.type,
+      discount: '0',
+      amount: String(fee.amount || 0),
+    }));
+  };
+
   const handleDiscountChange = (discountValue: string) => {
     const discount = Number(discountValue || 0);
-    const finalAmount = Math.max(selectedStudentDueAmount - discount, 0);
+    const baseAmount = selectedPendingFee ? Number(selectedPendingFee.amount || 0) : selectedStudentDueAmount;
+    const finalAmount = Math.max(baseAmount - discount, 0);
     setFormData({
       ...formData,
       discount: discountValue,
@@ -367,15 +405,15 @@ export default function Fees() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Fee Management</h1>
-          <p className="text-slate-500">Track collections and manage student accounts.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Fees & Dues</h1>
+          <p className="text-slate-500">Collect payments, clear pending dues, and print student receipts.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <Link
             to="/fees/reports"
             className="flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 font-semibold text-indigo-700 transition-all hover:bg-indigo-50"
           >
-            Fee Reports
+            Due Reports
             <ArrowRight className="w-4 h-4" />
           </Link>
           {user?.role === 'admin' && (
@@ -384,7 +422,7 @@ export default function Fees() {
               className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-semibold transition-all shadow-lg shadow-emerald-200"
             >
               <Plus className="w-5 h-5" />
-              Collect Fee
+              Collect Payment
             </button>
           )}
         </div>
@@ -392,7 +430,7 @@ export default function Fees() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">Total Collected (Month)</p>
+          <p className="text-slate-500 text-sm font-medium">Collected This Month</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(totalCollected)}</p>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -400,7 +438,7 @@ export default function Fees() {
           <p className="text-2xl font-bold text-rose-600 mt-1">{formatCurrency(pendingAmount)}</p>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">Today's Collection</p>
+          <p className="text-slate-500 text-sm font-medium">Collected Today</p>
           <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(todayCollection)}</p>
         </div>
       </div>
@@ -411,7 +449,7 @@ export default function Fees() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search transactions..."
+              placeholder="Search by receipt, student, ledger or status..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm"
@@ -422,7 +460,7 @@ export default function Fees() {
             className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 transition-all text-sm font-medium"
           >
             <Download className="w-4 h-4" />
-            Open Reports
+            Open Due Reports
           </Link>
         </div>
         <div className="overflow-x-auto">
@@ -520,6 +558,7 @@ export default function Fees() {
                       value={studentSearch}
                       onChange={(e) => {
                         setStudentSearch(e.target.value);
+                        setSelectedPendingFeeId('');
                         setFormData({
                           ...formData,
                           student_id: '',
@@ -557,6 +596,7 @@ export default function Fees() {
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    disabled={Boolean(selectedPendingFee)}
                   >
                     {ledgers.map(l => (
                       <option key={l.id} value={l.name}>{l.name}</option>
@@ -594,7 +634,7 @@ export default function Fees() {
                   <label className="text-sm font-semibold text-slate-700">Due Amount</label>
                   <input
                     readOnly
-                    value={selectedStudent ? String(selectedStudentDueAmount) : ''}
+                    value={selectedStudent ? String(selectedPendingFee ? selectedPendingFee.amount : selectedStudentPendingTotal || selectedStudentDueAmount) : ''}
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-slate-700"
                   />
                 </div>
@@ -617,6 +657,25 @@ export default function Fees() {
               </div>
 
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-4">
+                <div className="space-y-2 xl:col-span-4">
+                  <label className="text-sm font-semibold text-slate-700">Pending Fee To Settle</label>
+                  <select
+                    value={selectedPendingFeeId}
+                    onChange={(e) => handlePendingFeeChange(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    disabled={!selectedStudent || selectedStudentPendingFees.length === 0}
+                  >
+                    {selectedStudentPendingFees.length === 0 ? (
+                      <option value="">No pending fee rows for this student</option>
+                    ) : (
+                      selectedStudentPendingFees.map((fee) => (
+                        <option key={fee.id} value={fee.id}>
+                          {fee.type} - {formatCurrency(Number(fee.amount || 0))} - {fee.bill_no}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-700">Discount</label>
                   <input

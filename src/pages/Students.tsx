@@ -108,6 +108,30 @@ type CustomFieldKey =
 const MAX_PHOTO_DIMENSION = 1280;
 const PHOTO_OUTPUT_QUALITY = 0.82;
 const MAX_OPTIMIZED_PHOTO_BYTES = 1024 * 1024;
+const STUDENT_LIST_FILTER_CLASS_KEY = 'students:list:selected-class';
+const STUDENT_LIST_PAGE_SIZE = 20;
+
+const normalizeAcademicClassName = (value?: string) => (value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+
+const deriveStreamFromClassName = (className?: string) => {
+  const normalized = normalizeAcademicClassName(className);
+  if (normalized.includes('ARTS')) return 'Arts';
+  if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'Science';
+  return 'None';
+};
+
+const isAcademicCollegeClass = (className?: string) => {
+  const normalized = normalizeAcademicClassName(className);
+  return /^XI (ARTS|SC|SCIENCE)$/.test(normalized) || /^XII (ARTS|SC|SCIENCE)$/.test(normalized);
+};
+
+const getCurrentAcademicSession = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1;
+  const startYear = month >= 4 ? year : year - 1;
+  return `${startYear}-${startYear + 1}`;
+};
 
 async function loadImage(file: File) {
   const objectUrl = URL.createObjectURL(file);
@@ -245,10 +269,17 @@ export default function Students() {
   const [view, setView] = useState<'list' | 'form' | 'profile' | 'reports'>('list');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedListClassId, setSelectedListClassId] = useState(() => localStorage.getItem(STUDENT_LIST_FILTER_CLASS_KEY) || '');
+  const [currentPage, setCurrentPage] = useState(1);
   const [formData, setFormData] = useState<Partial<Student>>(emptyStudentForm());
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState('');
+  const selectedClass = classes.find((item) => item.id === Number(formData.class_id));
+  const derivedAcademicStream = deriveStreamFromClassName(selectedClass?.name);
+  const admissionClassOptions = classes.filter(
+    (item) => isAcademicCollegeClass(item.name) || item.id === Number(formData.class_id),
+  );
 
   // Report Filters
   const [reportFilters, setReportFilters] = useState({
@@ -320,6 +351,14 @@ export default function Students() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STUDENT_LIST_FILTER_CLASS_KEY, selectedListClassId);
+  }, [selectedListClassId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedListClassId, students]);
 
   const fetchData = async () => {
     try {
@@ -455,6 +494,18 @@ export default function Students() {
     } catch (error) {
       console.error('Error saving student:', error);
     }
+  };
+
+  const syncAcademicClass = (classId: number) => {
+    const classItem = classes.find((item) => item.id === classId);
+    const derivedStream = deriveStreamFromClassName(classItem?.name);
+
+    setFormData((current) => ({
+      ...current,
+      class_id: classId,
+      student_group: derivedStream !== 'None' ? derivedStream : current.student_group,
+      stream: derivedStream !== 'None' ? derivedStream : current.stream,
+    }));
   };
 
   const generateReport = async () => {
@@ -617,10 +668,31 @@ export default function Students() {
     );
   };
 
-  const filteredStudents = students.filter(s => 
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.reg_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.phone.includes(searchTerm)
+  const currentAcademicSession = getCurrentAcademicSession();
+  const listClassOptions = classes.filter((item) => isAcademicCollegeClass(item.name));
+  const sessionFilteredStudents = students.filter(
+    (student) => student.session === currentAcademicSession && student.status !== 'alumni',
+  );
+  const filteredStudents = sessionFilteredStudents.filter((student) => {
+    if (selectedListClassId && String(student.class_id) !== selectedListClassId) {
+      return false;
+    }
+
+    if (!searchTerm) {
+      return true;
+    }
+
+    const normalizedSearch = searchTerm.toLowerCase();
+    return (
+      student.name.toLowerCase().includes(normalizedSearch) ||
+      student.reg_no.toLowerCase().includes(normalizedSearch) ||
+      student.phone.includes(searchTerm)
+    );
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / STUDENT_LIST_PAGE_SIZE));
+  const paginatedStudents = filteredStudents.slice(
+    (currentPage - 1) * STUDENT_LIST_PAGE_SIZE,
+    currentPage * STUDENT_LIST_PAGE_SIZE,
   );
 
   if (loading) return <div className="p-8 text-center">Loading...</div>;
@@ -643,7 +715,14 @@ export default function Students() {
           <button 
             onClick={() => {
               setSelectedStudent(null);
-              setFormData({ ...emptyStudentForm(), class_id: classes[0]?.id || 0 });
+              const preferredClassId = admissionClassOptions[0]?.id || classes[0]?.id || 0;
+              const preferredStream = deriveStreamFromClassName(classes.find((item) => item.id === preferredClassId)?.name);
+              setFormData({
+                ...emptyStudentForm(),
+                class_id: preferredClassId,
+                student_group: preferredStream !== 'None' ? preferredStream : 'None',
+                stream: preferredStream !== 'None' ? preferredStream : 'None',
+              });
               setPhotoUploadError('');
               setPhotoPreviewUrl((currentPreview) => {
                 if (currentPreview) {
@@ -664,7 +743,7 @@ export default function Students() {
 
       {view === 'list' && (
         <div className="space-y-4">
-          <div className="flex gap-4 mb-6">
+          <div className="flex flex-col gap-4 mb-6 md:flex-row">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
               <input 
@@ -674,6 +753,29 @@ export default function Students() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
+            </div>
+            <div className="w-full md:w-64">
+              <select
+                value={selectedListClassId}
+                onChange={(e) => setSelectedListClassId(e.target.value)}
+                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              >
+                <option value="">All Classes</option>
+                {listClassOptions.map((classItem) => (
+                  <option key={classItem.id} value={classItem.id}>
+                    {classItem.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
+            <div>
+              Showing current academic session <span className="font-semibold text-slate-900">{currentAcademicSession}</span>
+            </div>
+            <div>
+              {filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'} found
             </div>
           </div>
 
@@ -691,7 +793,7 @@ export default function Students() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredStudents.map((student) => (
+                {paginatedStudents.map((student) => (
                   <tr key={student.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -745,7 +847,11 @@ export default function Students() {
 
                               return null;
                             });
-                            setFormData(student);
+                            setFormData({
+                              ...student,
+                              student_group: deriveStreamFromClassName(student.class_name) !== 'None' ? deriveStreamFromClassName(student.class_name) : student.student_group,
+                              stream: deriveStreamFromClassName(student.class_name) !== 'None' ? deriveStreamFromClassName(student.class_name) : student.stream,
+                            });
                             setView('form');
                           }}
                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white hover:shadow-sm rounded-lg transition-all"
@@ -756,8 +862,39 @@ export default function Students() {
                     </td>
                   </tr>
                 ))}
+                {paginatedStudents.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
+                      No students found for the current academic session and selected class.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
+          </div>
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-slate-500">
+              Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage >= totalPages}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -937,10 +1074,11 @@ export default function Students() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Select Class</label>
-                    <select required className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.class_id} onChange={(e) => setFormData({ ...formData, class_id: parseInt(e.target.value) })}>
+                    <select required className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.class_id} onChange={(e) => syncAcademicClass(parseInt(e.target.value, 10))}>
                       <option value="">Select Class</option>
-                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      {admissionClassOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
+                    <p className="text-xs text-slate-500">Admissions are limited to XI/XII Arts and Science batches.</p>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Section</label>
@@ -970,20 +1108,20 @@ export default function Students() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Group</label>
-                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.student_group} onChange={(e) => setFormData({ ...formData, student_group: e.target.value })}>
-                      <option value="None">None</option>
-                      <option value="Science">Science</option>
-                      <option value="Commerce">Commerce</option>
+                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={derivedAcademicStream !== 'None' ? derivedAcademicStream : formData.student_group} onChange={(e) => setFormData({ ...formData, student_group: e.target.value })} disabled={derivedAcademicStream !== 'None'}>
                       <option value="Arts">Arts</option>
+                      <option value="Science">Science</option>
+                      {derivedAcademicStream === 'None' && <option value="None">None</option>}
                     </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Stream</label>
-                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.stream} onChange={(e) => setFormData({ ...formData, stream: e.target.value })}>
-                      <option value="None">None</option>
+                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={derivedAcademicStream !== 'None' ? derivedAcademicStream : formData.stream} onChange={(e) => setFormData({ ...formData, stream: e.target.value })} disabled={derivedAcademicStream !== 'None'}>
                       <option value="Science">Science</option>
                       <option value="Arts">Arts</option>
+                      {derivedAcademicStream === 'None' && <option value="None">None</option>}
                     </select>
+                    <p className="text-xs text-slate-500">Stream follows the selected class automatically.</p>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Hostel</label>

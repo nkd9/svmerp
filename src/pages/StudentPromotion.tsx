@@ -16,6 +16,15 @@ interface ClassModel {
   name: string;
 }
 
+const normalizeAcademicClassName = (value: string) => value.trim().toUpperCase().replace(/\s+/g, ' ');
+
+const getPromotableTargetClassName = (className?: string) => {
+  const normalized = normalizeAcademicClassName(className || '');
+  if (normalized === 'XI ARTS') return 'XII ARTS';
+  if (normalized === 'XI SC' || normalized === 'XI SCIENCE') return 'XII SC';
+  return '';
+};
+
 export default function StudentPromotion() {
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassModel[]>([]);
@@ -97,20 +106,26 @@ export default function StudentPromotion() {
   if (loading) return <div className="p-8">Loading...</div>;
 
   const eligibleStudents = students.filter(s => (fromClassId ? s.class_id.toString() === fromClassId : true) && s.status !== 'alumni');
+  const selectedFromClass = classes.find((item) => String(item.id) === fromClassId);
+  const allowedTargetClassName = getPromotableTargetClassName(selectedFromClass?.name);
+  const promotionTargetOptions = allowedTargetClassName
+    ? classes.filter((item) => normalizeAcademicClassName(item.name) === normalizeAcademicClassName(allowedTargetClassName))
+    : [];
+  const graduationAllowed = selectedFromClass ? !allowedTargetClassName : true;
 
   return (
     <div className="space-y-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Student Promotion & Graduation</h1>
-        <p className="text-slate-500">Move students to the next academic year or mark them as Alumni.</p>
+        <h1 className="text-2xl font-bold text-slate-900">Year Promotion & Graduation</h1>
+        <p className="text-slate-500">Promote 1st year students to 2nd year or move passed-out students to alumni.</p>
       </div>
 
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div>
-            <label className="text-sm font-semibold text-slate-700">From Class (Current)</label>
+            <label className="text-sm font-semibold text-slate-700">Current Year / Class</label>
             <select value={fromClassId} onChange={e => { setFromClassId(e.target.value); setSelectedStudents([]); }} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="">-- All Active --</option>
+              <option value="">-- All Active Students --</option>
               {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -120,18 +135,24 @@ export default function StudentPromotion() {
           <div>
             <label className="text-sm font-semibold text-slate-700">Action Type</label>
             <select value={isGraduation ? 'graduate' : 'promote'} onChange={e => setIsGraduation(e.target.value === 'graduate')} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="promote">Promote to Next Class</option>
-              <option value="graduate">Graduate (Mark as Alumni)</option>
+              <option value="promote">Promote to Next Year</option>
+              <option value="graduate" disabled={!graduationAllowed}>Graduate to Alumni</option>
             </select>
+            {selectedFromClass && !graduationAllowed && (
+              <p className="mt-2 text-xs text-slate-500">Only 2nd year classes can be graduated. {selectedFromClass.name} can only be promoted to {allowedTargetClassName}.</p>
+            )}
           </div>
 
           {!isGraduation && (
             <div>
-              <label className="text-sm font-semibold text-slate-700">To Class (Next)</label>
+              <label className="text-sm font-semibold text-slate-700">Target Year / Class</label>
               <select value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="">-- Select Target --</option>
-                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {promotionTargetOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {selectedFromClass && !allowedTargetClassName && (
+                <p className="mt-2 text-xs text-slate-500">This class does not have an automatic promotion path configured.</p>
+              )}
             </div>
           )}
 
@@ -169,7 +190,7 @@ export default function StudentPromotion() {
                   <input type="checkbox" onChange={handleSelectAll} checked={eligibleStudents.length > 0 && selectedStudents.length === eligibleStudents.length} className="w-4 h-4 text-indigo-600 rounded" />
                 </th>
                 <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student & Reg No</th>
-                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Class</th>
+                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Year / Class</th>
                 <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
                 <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Session</th>
               </tr>

@@ -1,23 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  CreditCard, 
-  BookOpen, 
-  // Home, 
-  // Calendar, 
-  // Stethoscope, 
-  // Wallet,
+import {
+  LayoutDashboard,
+  Users,
+  CreditCard,
+  BookOpen,
   FileText,
   Settings,
   LogOut,
   Menu,
-  Bell,
-  Search,
   User as UserIcon,
-  GraduationCap,
-  Archive,
-  WalletCards
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -31,11 +22,11 @@ function cn(...inputs: ClassValue[]) {
 
 const sidebarItems = [
   { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { name: 'Student Admission', icon: Users, path: '/students' },
-  { name: 'Exams', icon: BookOpen, path: '/exams' },
-  { name: 'Fees', icon: CreditCard, path: '/fees' },
+  { name: 'Admissions', icon: Users, path: '/students' },
+  { name: 'Exams & Marks', icon: BookOpen, path: '/exams' },
+  { name: 'Fees & Dues', icon: CreditCard, path: '/fees' },
   { name: 'Reports', icon: FileText, path: '/reports' },
-  { name: 'Admin Settings', icon: Settings, path: '/admin-settings', adminOnly: true },
+  { name: 'Admin', icon: Settings, path: '/admin-settings', adminOnly: true },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -61,7 +52,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       >
         <div className="p-6 flex items-center gap-3 border-b border-slate-800">
           <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold">S</div>
-          {isSidebarOpen && <span className="font-bold text-xl text-white tracking-tight">SVM classes ERP</span>}
+          {isSidebarOpen && <span className="font-bold text-xl text-white tracking-tight">SVM College ERP</span>}
         </div>
 
         <nav className="flex-1 py-6 px-3 space-y-1">
@@ -120,21 +111,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="relative hidden md:block">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Search anything..." 
-                className="pl-10 pr-4 py-2 bg-slate-50 border-none rounded-full text-sm w-64 focus:ring-2 focus:ring-indigo-500 transition-all"
-              />
+            <div className="hidden md:block text-sm text-slate-500">
+              Graduation college management for Arts and Science
             </div>
           </div>
 
           <div className="flex items-center gap-6">
-            <button className="relative p-2 hover:bg-slate-100 rounded-full text-slate-500">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
             <div className="flex items-center gap-3 pl-6 border-l border-slate-200">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-slate-900">{user?.name}</p>
