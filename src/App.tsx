@@ -13,9 +13,11 @@ import SubjectMaster from './pages/SubjectMaster';
 // import Attendance from './pages/Attendance';
 // import Medical from './pages/Medical';
 // import FoodWallet from './pages/FoodWallet';
-
 import Reports from './pages/Reports';
 import AdminSettings from './pages/AdminSettings';
+import FeeStructureSetup from './pages/FeeStructure';
+import StudentPromotion from './pages/StudentPromotion';
+import Alumni from './pages/Alumni';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isReady } = useAuth();
@@ -112,6 +114,27 @@ export default function App() {
               </Layout>
             </PrivateRoute>
           } /> */}
+          <Route path="/fee-structures" element={
+            <AdminRoute>
+              <Layout>
+                <FeeStructureSetup />
+              </Layout>
+            </AdminRoute>
+          } />
+          <Route path="/student-promotion" element={
+            <AdminRoute>
+              <Layout>
+                <StudentPromotion />
+              </Layout>
+            </AdminRoute>
+          } />
+          <Route path="/alumni" element={
+            <AdminRoute>
+              <Layout>
+                <Alumni />
+              </Layout>
+            </AdminRoute>
+          } />
           <Route path="/reports" element={
             <PrivateRoute>
               <Layout>

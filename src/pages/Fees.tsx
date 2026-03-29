@@ -21,6 +21,7 @@ export default function Fees() {
 
   const [fees, setFees] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
+  const [ledgers, setLedgers] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<any | null>(null);
@@ -45,12 +46,20 @@ export default function Fees() {
 
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
-    const [feesRes, studentsRes] = await Promise.all([
+    const [feesRes, studentsRes, ledgersRes] = await Promise.all([
       fetch('/api/fees', { headers }),
-      fetch('/api/students', { headers })
+      fetch('/api/students', { headers }),
+      fetch('/api/fee-ledgers', { headers })
     ]);
     setFees(await feesRes.json());
     setStudents(await studentsRes.json());
+    if (ledgersRes.ok) {
+      const ledgersData = await ledgersRes.json();
+      setLedgers(ledgersData);
+      if (ledgersData.length > 0) {
+        setFormData(prev => ({ ...prev, type: ledgersData[0].name }));
+      }
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,6 +101,9 @@ export default function Fees() {
         discount: '0', mode: 'Cash', reference_no: '',
         bill_no: `BILL-${Date.now()}`
       });
+    } else {
+      const errorData = await res.json();
+      alert(errorData.error || 'Check failed. Payment could not be processed.');
     }
   };
 
@@ -538,7 +550,19 @@ export default function Fees() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Fee Ledger</label>
+                  <select
+                    className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  >
+                    {ledgers.map(l => (
+                      <option key={l.id} value={l.name}>{l.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-700">Student Name</label>
                   <input

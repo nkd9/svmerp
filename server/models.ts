@@ -58,6 +58,7 @@ const studentSchema = new Schema(
     session: { type: String, default: "" },
     category: { type: String, default: "General" },
     student_group: { type: String, default: "None" },
+    stream: { type: String, default: "None" },
     occupation: { type: String, default: "" },
     admission_date: { type: String, required: true },
     reg_no: { type: String, required: true, unique: true, trim: true },
@@ -138,6 +139,8 @@ const feeSchema = new Schema(
   {
     id: { type: Number, required: true, unique: true, index: true },
     student_id: { type: Number, required: true },
+    academic_session: { type: String, default: "" },
+    class_id: { type: Number, default: 0 },
     amount: { type: Number, required: true },
     type: { type: String, required: true },
     date: { type: String, required: true },
@@ -146,6 +149,18 @@ const feeSchema = new Schema(
     mode: { type: String, default: "Cash" },
     reference_no: { type: String, default: "" },
     bill_no: { type: String, required: true, unique: true, trim: true },
+  },
+  schemaOptions,
+);
+
+const feeStructureSchema = new Schema(
+  {
+    id: { type: Number, required: true, unique: true, index: true },
+    academic_session: { type: String, required: true },
+    class_id: { type: Number, required: true },
+    stream: { type: String, required: true },
+    fee_type: { type: String, required: true },
+    amount: { type: Number, required: true },
   },
   schemaOptions,
 );
@@ -246,6 +261,24 @@ const foodTransactionSchema = new Schema(
   schemaOptions,
 );
 
+const sessionSchema = new Schema(
+  {
+    id: { type: Number, required: true, unique: true, index: true },
+    name: { type: String, required: true, unique: true, trim: true },
+    active: { type: Boolean, default: true },
+  },
+  schemaOptions,
+);
+
+const streamSchema = new Schema(
+  {
+    id: { type: Number, required: true, unique: true, index: true },
+    name: { type: String, required: true, unique: true, trim: true },
+    active: { type: Boolean, default: true },
+  },
+  schemaOptions,
+);
+
 export const Counter: any = mongoose.models.Counter || mongoose.model("Counter", counterSchema);
 export const User: any = mongoose.models.User || mongoose.model("User", userSchema);
 export const ClassModel: any = mongoose.models.Class || mongoose.model("Class", classSchema);
@@ -254,6 +287,7 @@ export const Subject: any = mongoose.models.Subject || mongoose.model("Subject",
 export const Exam: any = mongoose.models.Exam || mongoose.model("Exam", examSchema);
 export const Mark: any = mongoose.models.Mark || mongoose.model("Mark", markSchema);
 export const Fee: any = mongoose.models.Fee || mongoose.model("Fee", feeSchema);
+export const FeeStructure: any = mongoose.models.FeeStructure || mongoose.model("FeeStructure", feeStructureSchema);
 export const FeeLedger: any = mongoose.models.FeeLedger || mongoose.model("FeeLedger", feeLedgerSchema);
 export const Transaction: any = mongoose.models.Transaction || mongoose.model("Transaction", transactionSchema);
 export const Hostel: any = mongoose.models.Hostel || mongoose.model("Hostel", hostelSchema);
@@ -266,6 +300,10 @@ export const MedicalRecord: any =
 export const FoodWallet: any = mongoose.models.FoodWallet || mongoose.model("FoodWallet", foodWalletSchema);
 export const FoodTransaction: any =
   mongoose.models.FoodTransaction || mongoose.model("FoodTransaction", foodTransactionSchema);
+export const AcademicSessionMaster: any =
+  mongoose.models.AcademicSessionMaster || mongoose.model("AcademicSessionMaster", sessionSchema);
+export const StreamMaster: any =
+  mongoose.models.StreamMaster || mongoose.model("StreamMaster", streamSchema);
 
 export async function getNextSequence(name: string) {
   const counter: any = await Counter.findOneAndUpdate(

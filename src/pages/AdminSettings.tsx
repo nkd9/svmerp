@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw } from 'lucide-react';
+import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw, WalletCards, GraduationCap, Archive, CalendarDays, BookOpen } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 type AdminUser = {
   id: number;
@@ -18,6 +19,18 @@ type FeeLedger = {
   id: number;
   name: string;
   description: string;
+  active: boolean;
+};
+
+type AcademicSession = {
+  id: number;
+  name: string;
+  active: boolean;
+};
+
+type Stream = {
+  id: number;
+  name: string;
   active: boolean;
 };
 
@@ -89,6 +102,8 @@ export default function AdminSettings() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [ledgers, setLedgers] = useState<FeeLedger[]>([]);
+  const [sessions, setSessions] = useState<AcademicSession[]>([]);
+  const [streams, setStreams] = useState<Stream[]>([]);
   const [accountResults, setAccountResults] = useState<StudentAccount[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<StudentAccount | null>(null);
   const [feeSetupDrafts, setFeeSetupDrafts] = useState<Record<number, FeeSetupDraft>>({});
@@ -100,6 +115,8 @@ export default function AdminSettings() {
   const [userForm, setUserForm] = useState({ name: '', username: '', password: '', role: 'staff' });
   const [classForm, setClassForm] = useState({ name: '', batches: '' });
   const [ledgerForm, setLedgerForm] = useState({ name: '', description: '' });
+  const [sessionForm, setSessionForm] = useState({ name: '' });
+  const [streamForm, setStreamForm] = useState({ name: '' });
   const [message, setMessage] = useState('');
   const preserveSelectedOnNextEmptySearch = useRef(false);
 
@@ -121,15 +138,19 @@ export default function AdminSettings() {
   };
 
   const refreshAdminData = async () => {
-    const [usersRes, classesRes, ledgersRes] = await Promise.all([
+    const [usersRes, classesRes, ledgersRes, sessionsRes, streamsRes] = await Promise.all([
       fetch('/api/admin/users', { headers: authHeaders }),
       fetch('/api/admin/classes', { headers: authHeaders }),
       fetch('/api/admin/fee-ledgers', { headers: authHeaders }),
+      fetch('/api/admin/sessions', { headers: authHeaders }),
+      fetch('/api/admin/streams', { headers: authHeaders }),
     ]);
 
     if (usersRes.ok) setUsers(await usersRes.json());
     if (classesRes.ok) setClasses(await classesRes.json());
     if (ledgersRes.ok) setLedgers(await ledgersRes.json());
+    if (sessionsRes.ok) setSessions(await sessionsRes.json());
+    if (streamsRes.ok) setStreams(await streamsRes.json());
   };
 
   const createUser = async (e: FormEvent) => {
@@ -188,6 +209,24 @@ export default function AdminSettings() {
     }
   };
 
+  const deleteClass = async (id: number) => {
+    const confirmed = window.confirm('Are you sure you want to delete this class?');
+    if (!confirmed) return;
+
+    const res = await fetch(`/api/admin/classes/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+
+    if (res.ok) {
+      refreshAdminData();
+      notify('Class deleted successfully');
+    } else {
+      const data = await res.json();
+      notify(data.error || 'Unable to delete class');
+    }
+  };
+
   const createLedger = async (e: FormEvent) => {
     e.preventDefault();
     const res = await fetch('/api/admin/fee-ledgers', {
@@ -204,6 +243,58 @@ export default function AdminSettings() {
       const data = await res.json();
       notify(data.error || 'Unable to create fee ledger');
     }
+  };
+
+  const createSession = async (e: FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/admin/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(sessionForm),
+    });
+    if (res.ok) {
+      setSessionForm({ name: '' });
+      refreshAdminData();
+      notify('Academic Session created');
+    } else {
+      const data = await res.json();
+      notify(data.error || 'Unable to create session');
+    }
+  };
+
+  const deleteSession = async (id: number) => {
+    if (!window.confirm('Delete this session?')) return;
+    const res = await fetch(`/api/admin/sessions/${id}`, { method: 'DELETE', headers: authHeaders });
+    if (res.ok) {
+      refreshAdminData();
+      notify('Session deleted');
+    } else notify('Unable to delete session');
+  };
+
+  const createStream = async (e: FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/admin/streams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(streamForm),
+    });
+    if (res.ok) {
+      setStreamForm({ name: '' });
+      refreshAdminData();
+      notify('Stream created');
+    } else {
+      const data = await res.json();
+      notify(data.error || 'Unable to create stream');
+    }
+  };
+
+  const deleteStream = async (id: number) => {
+    if (!window.confirm('Delete this stream?')) return;
+    const res = await fetch(`/api/admin/streams/${id}`, { method: 'DELETE', headers: authHeaders });
+    if (res.ok) {
+      refreshAdminData();
+      notify('Stream deleted');
+    } else notify('Unable to delete stream');
   };
 
   const searchAccounts = async (e?: FormEvent) => {
@@ -386,6 +477,30 @@ export default function AdminSettings() {
         </div>
       )}
 
+      <div className="grid gap-6 md:grid-cols-3">
+        <Link to="/fee-structures" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
+          <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+            <WalletCards className="h-6 w-6" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Fee Setup</h2>
+          <p className="mt-1 text-sm text-slate-500">Configure global academic fee structures and auto-apply them.</p>
+        </Link>
+        <Link to="/student-promotion" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
+          <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+            <GraduationCap className="h-6 w-6" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Student Promotion</h2>
+          <p className="mt-1 text-sm text-slate-500">Promote batches of students to their next academic year.</p>
+        </Link>
+        <Link to="/alumni" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
+          <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+            <Archive className="h-6 w-6" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Alumni Directory</h2>
+          <p className="mt-1 text-sm text-slate-500">View graduated students and manage their historic records.</p>
+        </Link>
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-3">
         <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3">
@@ -489,11 +604,20 @@ export default function AdminSettings() {
 
           <div className="mt-6 space-y-3">
             {classes.map((item) => (
-              <div key={item.id} className="rounded-2xl bg-slate-50 px-4 py-3">
-                <p className="font-semibold text-slate-900">{item.name}</p>
-                <p className="text-sm text-slate-500">
-                  {item.batch_names?.length ? item.batch_names.join(', ') : 'No batches yet'}
-                </p>
+              <div key={item.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                <div>
+                  <p className="font-semibold text-slate-900">{item.name}</p>
+                  <p className="text-sm text-slate-500">
+                    {item.batch_names?.length ? item.batch_names.join(', ') : 'No batches yet'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => deleteClass(item.id)}
+                  className="rounded-lg p-2 text-rose-500 transition hover:bg-white"
+                  title="Delete class"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             ))}
           </div>
@@ -541,6 +665,88 @@ export default function AdminSettings() {
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-slate-500">{ledger.description || 'No description'}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900">Session Master</h2>
+              <p className="text-sm text-slate-500">Manage academic years/sessions.</p>
+            </div>
+          </div>
+
+          <form onSubmit={createSession} className="space-y-3">
+            <input
+              required
+              type="text"
+              placeholder="e.g. 2025-2026"
+              className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+              value={sessionForm.name}
+              onChange={(e) => setSessionForm({ ...sessionForm, name: e.target.value })}
+            />
+            <button type="submit" className="w-full rounded-xl bg-indigo-600 py-3 font-bold text-white hover:bg-indigo-700">
+              Create Session
+            </button>
+          </form>
+
+          <div className="mt-6 space-y-3">
+            {sessions.map((session) => (
+              <div key={session.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                <p className="font-semibold text-slate-900">{session.name}</p>
+                <button
+                  onClick={() => deleteSession(session.id)}
+                  className="rounded-lg p-2 text-rose-500 transition hover:bg-white"
+                  title="Delete session"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+              <BookOpen className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900">Stream Master</h2>
+              <p className="text-sm text-slate-500">Manage stream options.</p>
+            </div>
+          </div>
+
+          <form onSubmit={createStream} className="space-y-3">
+            <input
+              required
+              type="text"
+              placeholder="e.g. Science, Arts"
+              className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
+              value={streamForm.name}
+              onChange={(e) => setStreamForm({ ...streamForm, name: e.target.value })}
+            />
+            <button type="submit" className="w-full rounded-xl bg-indigo-600 py-3 font-bold text-white hover:bg-indigo-700">
+              Create Stream
+            </button>
+          </form>
+
+          <div className="mt-6 space-y-3">
+            {streams.map((stream) => (
+              <div key={stream.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                <p className="font-semibold text-slate-900">{stream.name}</p>
+                <button
+                  onClick={() => deleteStream(stream.id)}
+                  className="rounded-lg p-2 text-rose-500 transition hover:bg-white"
+                  title="Delete stream"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             ))}
           </div>

@@ -40,6 +40,7 @@ interface Student {
   session: string;
   category: string;
   student_group: string;
+  stream: string;
   occupation: string;
   admission_date: string;
   reg_no: string;
@@ -201,6 +202,7 @@ export default function Students() {
     session: '2025-2026',
     category: 'General',
     student_group: 'None',
+    stream: 'None',
     occupation: '',
     admission_date: new Date().toISOString().split('T')[0],
     reg_no: `REG-${Date.now().toString().slice(-6)}`,
@@ -237,6 +239,8 @@ export default function Students() {
 
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [streams, setStreams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'form' | 'profile' | 'reports'>('list');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -320,15 +324,19 @@ export default function Students() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('token');
-      const [studentsRes, classesRes] = await Promise.all([
+      const [studentsRes, classesRes, sessionsRes, streamsRes] = await Promise.all([
         fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } })
+        fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/sessions', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/streams', { headers: { 'Authorization': `Bearer ${token}` } })
       ]);
       
       if (studentsRes.ok && classesRes.ok) {
         setStudents(await studentsRes.json());
         setClasses(await classesRes.json());
       }
+      if (sessionsRes.ok) setSessions(await sessionsRes.json());
+      if (streamsRes.ok) setStreams(await streamsRes.json());
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -676,6 +684,7 @@ export default function Students() {
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student</th>
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reg No</th>
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Class</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
@@ -705,6 +714,7 @@ export default function Students() {
                         {student.class_name}
                       </span>
                     </td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{student.stream}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{student.category}</td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded-full ${
@@ -916,7 +926,14 @@ export default function Students() {
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Session</label>
-                    <input type="text" className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.session} onChange={(e) => setFormData({ ...formData, session: e.target.value })} />
+                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.session} onChange={(e) => setFormData({ ...formData, session: e.target.value })}>
+                      <option value="2023-2024">2023-2024</option>
+                      <option value="2024-2025">2024-2025</option>
+                      <option value="2025-2026">2025-2026</option>
+                      <option value="2026-2027">2026-2027</option>
+                      <option value="2027-2028">2027-2028</option>
+                      <option value="2028-2029">2028-2029</option>
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Select Class</label>
@@ -957,6 +974,14 @@ export default function Students() {
                       <option value="None">None</option>
                       <option value="Science">Science</option>
                       <option value="Commerce">Commerce</option>
+                      <option value="Arts">Arts</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Stream</label>
+                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.stream} onChange={(e) => setFormData({ ...formData, stream: e.target.value })}>
+                      <option value="None">None</option>
+                      <option value="Science">Science</option>
                       <option value="Arts">Arts</option>
                     </select>
                   </div>
@@ -1221,6 +1246,7 @@ export default function Students() {
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Session</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.session)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Section</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.section)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Category</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.category)}</div></div>
+                    <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Stream</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.stream)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Group</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.student_group)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Roll No</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.roll_no)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">RFID Card No</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.rfid_card_no)}</div></div>

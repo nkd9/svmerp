@@ -308,7 +308,7 @@ async function ensureSeedRecord(model: any, query: Record<string, unknown>, data
 }
 
 export async function connectToDatabase() {
-  const mongodbUri = process.env.MONGODB_URI || DEFAULT_MONGODB_URI;
+  const mongodbUri = (process.env.MONGODB_URI || DEFAULT_MONGODB_URI).trim();
 
   if (mongoose.connection.readyState === 1) {
     return mongoose.connection;
@@ -362,6 +362,9 @@ async function seedDatabase() {
       "feeLedgers",
     );
   }
+
+  // STOP SEEDING DEMO DATA HERE
+  return;
 
   for (const student of demoStudents) {
     const class_id = classByName.get(student.className);

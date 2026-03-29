@@ -14,7 +14,10 @@ import {
   Menu,
   Bell,
   Search,
-  User as UserIcon
+  User as UserIcon,
+  GraduationCap,
+  Archive,
+  WalletCards
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -31,10 +34,6 @@ const sidebarItems = [
   { name: 'Student Admission', icon: Users, path: '/students' },
   { name: 'Exams', icon: BookOpen, path: '/exams' },
   { name: 'Fees', icon: CreditCard, path: '/fees' },
-  // { name: 'Hostel', icon: Home, path: '/hostel' },
-  // { name: 'Attendance', icon: Calendar, path: '/attendance' },
-  // { name: 'Medical', icon: Stethoscope, path: '/medical' },
-  // { name: 'Food Wallet', icon: Wallet, path: '/food-wallet' },
   { name: 'Reports', icon: FileText, path: '/reports' },
   { name: 'Admin Settings', icon: Settings, path: '/admin-settings', adminOnly: true },
 ];

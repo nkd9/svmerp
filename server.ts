@@ -12,6 +12,7 @@ import {
   ClassModel,
   Exam,
   Fee,
+  FeeStructure,
   FeeLedger,
   FoodTransaction,
   FoodWallet,
@@ -23,11 +24,13 @@ import {
   Subject,
   Transaction,
   User,
+  AcademicSessionMaster,
+  StreamMaster,
   getNextSequence,
 } from "./server/models.ts";
 
 try {
-  dotenv.config({ path: ".env.local" });
+  dotenv.config({ path: ".env.local", override: true });
   dotenv.config();
 } catch (e) {
   console.log("Dotenv load skipped or failed - relying on system environment variables.");
@@ -99,6 +102,7 @@ function buildStudentPayload(body: any, existingStatus?: string) {
     session: body.session || "",
     category: body.category || "General",
     student_group: body.student_group || "None",
+    stream: body.stream || "None",
     occupation: body.occupation || "",
     admission_date: body.admission_date || dateString(),
     reg_no: body.reg_no,
@@ -331,9 +335,32 @@ async function startServer() {
   app.post("/api/fees", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const feeId = await getNextSequence("fees");
+      const currentSession = req.body.academic_session || "";
+      const currentClassId = toNumber(req.body.class_id) || 0;
+
+      // Check for pending older dues before accepting current payment
+      if (req.body.status !== "pending") {
+        const student = await Student.findOne({ id: toNumber(req.body.student_id) }).lean();
+        if (student) {
+          // Find any pending fee for this student that belongs to an older session or older class
+          // Assuming classes are "1" (1st year) and "2" (2nd year).
+          const oldDues = await Fee.findOne({
+            student_id: student.id,
+            status: "pending",
+            class_id: { $lt: currentClassId, $gt: 0 }
+          }).lean();
+
+          if (oldDues) {
+            return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
+          }
+        }
+      }
+
       const payload = {
         id: feeId,
         student_id: toNumber(req.body.student_id),
+        academic_session: currentSession,
+        class_id: currentClassId,
         amount: toNumber(req.body.amount),
         type: req.body.type || "Fee Collection",
         date: req.body.date || dateString(),
@@ -908,6 +935,85 @@ async function startServer() {
     }
   });
 
+  app.delete("/api/admin/classes/:id", authenticateToken, requireAdmin, async (req, res) => {
+    const classId = toNumber(req.params.id);
+    const deleted = await ClassModel.findOneAndDelete({ id: classId }).lean();
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Class not found" });
+    }
+    
+    // Also delete any subjects linked to this class
+    await Subject.deleteMany({ class_id: classId });
+
+    res.json({ success: true });
+  });
+
+  app.get("/api/sessions", authenticateToken, async (_req, res) => {
+    const sessions = await AcademicSessionMaster.find({ active: true }).sort({ name: 1 }).lean();
+    res.json(sessions.map((item) => stripMongoFields(item)));
+  });
+
+  app.get("/api/admin/sessions", authenticateToken, requireAdmin, async (_req, res) => {
+    const sessions = await AcademicSessionMaster.find().sort({ id: 1 }).lean();
+    res.json(sessions.map((item) => stripMongoFields(item)));
+  });
+
+  app.post("/api/admin/sessions", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const id = await getNextSequence("sessions");
+      const session = await AcademicSessionMaster.create({
+        id,
+        name: req.body.name,
+        active: req.body.active ?? true,
+      });
+      res.json(stripMongoFields(session.toObject()));
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/sessions/:id", authenticateToken, requireAdmin, async (req, res) => {
+    const deleted = await AcademicSessionMaster.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
+    if (!deleted) return res.status(404).json({ error: "Session not found" });
+    res.json({ success: true });
+  });
+
+  app.get("/api/streams", authenticateToken, async (_req, res) => {
+    const streams = await StreamMaster.find({ active: true }).sort({ name: 1 }).lean();
+    res.json(streams.map((item) => stripMongoFields(item)));
+  });
+
+  app.get("/api/admin/streams", authenticateToken, requireAdmin, async (_req, res) => {
+    const streams = await StreamMaster.find().sort({ id: 1 }).lean();
+    res.json(streams.map((item) => stripMongoFields(item)));
+  });
+
+  app.post("/api/admin/streams", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const id = await getNextSequence("streams");
+      const stream = await StreamMaster.create({
+        id,
+        name: req.body.name,
+        active: req.body.active ?? true,
+      });
+      res.json(stripMongoFields(stream.toObject()));
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/streams/:id", authenticateToken, requireAdmin, async (req, res) => {
+    const deleted = await StreamMaster.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
+    if (!deleted) return res.status(404).json({ error: "Stream not found" });
+    res.json({ success: true });
+  });
+
+  app.get("/api/fee-ledgers", authenticateToken, async (_req, res) => {
+    const ledgers = await FeeLedger.find({ active: true }).sort({ name: 1 }).lean();
+    res.json(ledgers.map((item) => stripMongoFields(item)));
+  });
+
   app.get("/api/admin/fee-ledgers", authenticateToken, requireAdmin, async (_req, res) => {
     const ledgers = await FeeLedger.find().sort({ id: 1 }).lean();
     res.json(ledgers.map((item) => stripMongoFields(item)));
@@ -986,6 +1092,125 @@ async function startServer() {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
+  });
+
+  // --- FeeStructure APIs ---
+
+  app.get("/api/admin/fee-structures", authenticateToken, requireAdmin, async (_req, res) => {
+    const records = await FeeStructure.find().sort({ id: 1 }).lean();
+    res.json(records.map((item) => stripMongoFields(item)));
+  });
+
+  app.post("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const id = await getNextSequence("feeStructures");
+      const record = await FeeStructure.create({
+        id,
+        academic_session: req.body.academic_session,
+        class_id: toNumber(req.body.class_id),
+        stream: req.body.stream,
+        fee_type: req.body.fee_type,
+        amount: toNumber(req.body.amount),
+      });
+
+      res.json(stripMongoFields(record.toObject()));
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/fee-structures/:id", authenticateToken, requireAdmin, async (req, res) => {
+    const deleted = await FeeStructure.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
+    if (!deleted) {
+      return res.status(404).json({ error: "Fee Structure not found" });
+    }
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/fees/apply-structure", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const { academic_session, class_id, stream } = req.body;
+      const structures = await FeeStructure.find({
+        academic_session,
+        class_id: toNumber(class_id),
+        stream,
+      }).lean();
+
+      if (structures.length === 0) {
+        return res.status(404).json({ error: "No fee structures configured for this selection" });
+      }
+
+      const students = await Student.find({
+        status: "active",
+        class_id: toNumber(class_id),
+        stream,
+      }).lean();
+
+      let createdCount = 0;
+      for (const student of students) {
+        for (const struct of structures) {
+          // Check if pending fee already exists to prevent duplicate applying
+          const existing = await Fee.findOne({
+            student_id: student.id,
+            academic_session,
+            class_id: struct.class_id,
+            type: struct.fee_type,
+          }).lean();
+
+          if (!existing) {
+            const feeId = await getNextSequence("fees");
+            await Fee.create({
+              id: feeId,
+              student_id: student.id,
+              academic_session,
+              class_id: struct.class_id,
+              amount: struct.amount,
+              type: struct.fee_type,
+              date: dateString(),
+              status: "pending",
+              bill_no: `SYS-${feeId}-${Date.now()}`,
+            });
+            createdCount++;
+          }
+        }
+      }
+
+      res.json({ success: true, count: createdCount });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // --- Promotion & Alumni ---
+
+  app.post("/api/admin/students/promote", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const { student_ids, target_class_id, target_session, is_graduation } = req.body;
+      if (!Array.isArray(student_ids) || student_ids.length === 0) {
+        return res.status(400).json({ error: "No students provided" });
+      }
+
+      if (is_graduation) {
+        await Student.updateMany(
+          { id: { $in: student_ids } },
+          { $set: { status: "alumni" } }
+        );
+      } else {
+        await Student.updateMany(
+          { id: { $in: student_ids } },
+          { $set: { class_id: toNumber(target_class_id), session: target_session } }
+        );
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/alumni", authenticateToken, requireAdmin, async (req, res) => {
+    const alumni = await Student.find({ status: "alumni" }).sort({ id: -1 }).lean();
+    res.json(alumni.map((item) => stripMongoFields(item)));
   });
 
   app.delete("/api/admin/students/:id", authenticateToken, requireAdmin, async (req, res) => {

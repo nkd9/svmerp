@@ -193,7 +193,7 @@ export default function FeeReports() {
         'Student Name': fee.student_name,
         'Phone Number': fee.student?.phone || '',
         Class: fee.student?.class_name || '',
-        'Fee Type': fee.type,
+        'Fee Ledger': fee.type,
         'Total Amount': summary.total_amount,
         'Paid Amount': summary.paid_amount,
         'Pending Amount': summary.pending_amount,
@@ -213,7 +213,7 @@ export default function FeeReports() {
               'Student Name': 'Total',
               'Phone Number': '',
               Class: '',
-              'Fee Type': '',
+              'Fee Ledger': '',
               'Total Amount': '',
               'Paid Amount': '',
               'Pending Amount': '',
@@ -236,7 +236,7 @@ export default function FeeReports() {
           'Phone Number': fee.student?.phone || '',
           'Educational Year': fee.student?.session || '',
           Class: fee.student?.class_name || '',
-          'Fee Type': fee.type,
+          'Fee Ledger': fee.type,
           'Due Date': fee.date,
           'Total Amount': summary.total_amount,
           'Paid Amount': summary.paid_amount,
@@ -321,7 +321,7 @@ export default function FeeReports() {
           'Registration No': fee.student?.reg_no || '',
           'Phone Number': fee.student?.phone || '',
           Class: fee.student?.class_name || '',
-          'Fee Type': fee.type,
+          'Fee Ledger': fee.type,
           'Total Amount': summary.total_amount,
           'Paid Amount': summary.paid_amount,
           'Pending Amount': summary.pending_amount,
@@ -537,7 +537,7 @@ export default function FeeReports() {
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Fee Type</label>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Fee Ledger</label>
               <select
                 value={transactionFilters.type}
                 onChange={(e) => setTransactionFilters({ ...transactionFilters, type: e.target.value })}

@@ -152,7 +152,7 @@ export default function Dashboard() {
                 <th className="px-6 py-4 font-semibold">Student</th>
                 <th className="px-6 py-4 font-semibold">Phone Number</th>
                 <th className="px-6 py-4 font-semibold">Class</th>
-                <th className="px-6 py-4 font-semibold">Fee Type</th>
+                <th className="px-6 py-4 font-semibold">Fee Ledger</th>
                 <th className="px-6 py-4 font-semibold">Amount</th>
                 <th className="px-6 py-4 font-semibold">Date</th>
               </tr>
