@@ -13,6 +13,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { academicSessionsMatch, convertLegacySessionLabel, getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
 
 interface Student {
   id: number;
@@ -109,6 +110,7 @@ const MAX_PHOTO_DIMENSION = 1280;
 const PHOTO_OUTPUT_QUALITY = 0.82;
 const MAX_OPTIMIZED_PHOTO_BYTES = 1024 * 1024;
 const STUDENT_LIST_FILTER_CLASS_KEY = 'students:list:selected-class';
+const STUDENT_LIST_FILTER_SESSION_KEY = 'students:list:selected-session';
 const STUDENT_LIST_PAGE_SIZE = 20;
 
 const normalizeAcademicClassName = (value?: string) => (value || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -123,14 +125,6 @@ const deriveStreamFromClassName = (className?: string) => {
 const isAcademicCollegeClass = (className?: string) => {
   const normalized = normalizeAcademicClassName(className);
   return /^XI (ARTS|SC|SCIENCE)$/.test(normalized) || /^XII (ARTS|SC|SCIENCE)$/.test(normalized);
-};
-
-const getCurrentAcademicSession = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth() + 1;
-  const startYear = month >= 4 ? year : year - 1;
-  return `${startYear}-${startYear + 1}`;
 };
 
 async function loadImage(file: File) {
@@ -189,6 +183,8 @@ async function optimizeStudentPhoto(file: File) {
 }
 
 export default function Students() {
+  const currentAcademicSession = getCurrentAcademicSession();
+  const academicSessionOptions = getAcademicSessionOptions();
   const occupationOptions = [
     'Govt Employee',
     'Private Employee',
@@ -223,7 +219,7 @@ export default function Students() {
     gender: 'Male',
     class_id: 0,
     section: 'A',
-    session: '2025-2026',
+    session: currentAcademicSession,
     category: 'General',
     student_group: 'None',
     stream: 'None',
@@ -270,7 +266,9 @@ export default function Students() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedListClassId, setSelectedListClassId] = useState(() => localStorage.getItem(STUDENT_LIST_FILTER_CLASS_KEY) || '');
+  const [selectedListSession, setSelectedListSession] = useState(() => localStorage.getItem(STUDENT_LIST_FILTER_SESSION_KEY) || currentAcademicSession);
   const [currentPage, setCurrentPage] = useState(1);
+  const [failedImageKeys, setFailedImageKeys] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState<Partial<Student>>(emptyStudentForm());
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -286,11 +284,11 @@ export default function Students() {
     class_id: '',
     category: '',
     student_group: '',
-    session: '2025-2026',
+    session: currentAcademicSession,
     status: 'No',
     report_detail: 'Admission',
     custom_class_id: '',
-    custom_session: '2025-2026',
+    custom_session: currentAcademicSession,
     gender: 'Male'
   });
   const [reportData, setReportData] = useState<Student[]>([]);
@@ -302,6 +300,9 @@ export default function Students() {
     }
 
     return value;
+  };
+  const markImageAsFailed = (imageKey: string) => {
+    setFailedImageKeys((current) => (current[imageKey] ? current : { ...current, [imageKey]: true }));
   };
   const downloadExcelFile = (rows: Array<Record<string, string | number>>, fileName: string) => {
     if (!rows.length) {
@@ -357,8 +358,25 @@ export default function Students() {
   }, [selectedListClassId]);
 
   useEffect(() => {
+    localStorage.setItem(STUDENT_LIST_FILTER_SESSION_KEY, selectedListSession);
+  }, [selectedListSession]);
+
+  useEffect(() => {
+    if (selectedListClassId && !classes.some((item) => String(item.id) === selectedListClassId)) {
+      setSelectedListClassId('');
+    }
+  }, [classes, selectedListClassId]);
+
+  useEffect(() => {
+    const normalizedOptions = new Set(academicSessionOptions);
+    if (selectedListSession && !normalizedOptions.has(selectedListSession)) {
+      setSelectedListSession(currentAcademicSession);
+    }
+  }, [academicSessionOptions, currentAcademicSession, selectedListSession]);
+
+  useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedListClassId, students]);
+  }, [searchTerm, selectedListClassId, selectedListSession, students]);
 
   const fetchData = async () => {
     try {
@@ -513,7 +531,7 @@ export default function Students() {
       if (reportFilters.class_id && String(student.class_id) !== reportFilters.class_id) {
         return false;
       }
-      if (reportFilters.session && student.session !== reportFilters.session) {
+      if (reportFilters.session && !academicSessionsMatch(student.session, reportFilters.session)) {
         return false;
       }
 
@@ -553,7 +571,7 @@ export default function Students() {
       if (reportFilters.custom_class_id && String(student.class_id) !== reportFilters.custom_class_id) {
         return false;
       }
-      if (reportFilters.custom_session && student.session !== reportFilters.custom_session) {
+      if (reportFilters.custom_session && !academicSessionsMatch(student.session, reportFilters.custom_session)) {
         return false;
       }
       if (reportFilters.gender && student.gender !== reportFilters.gender) {
@@ -566,7 +584,9 @@ export default function Students() {
     setIsReportModalOpen(true);
   };
 
-  const availableSessions = Array.from(new Set(students.map((student) => student.session).filter(Boolean)));
+  const availableSessions = Array.from(
+    new Set(students.map((student) => convertLegacySessionLabel(student.session)).filter(Boolean)),
+  );
   const reportFieldOptions: Array<{ key: CustomFieldKey; label: string }> = [
     { key: 'id', label: 'Student Id' },
     { key: 'name', label: 'Student Name' },
@@ -616,7 +636,7 @@ export default function Students() {
           (student) =>
             student.class_id === classItem.id &&
             student.gender === gender &&
-            (!reportFilters.custom_session || student.session === reportFilters.custom_session),
+            (!reportFilters.custom_session || academicSessionsMatch(student.session, reportFilters.custom_session)),
         );
 
         const counts = { SEBC: 0, GEN: 0, OBC: 0, SC: 0, ST: 0 };
@@ -646,7 +666,7 @@ export default function Students() {
       return {
         ...baseRow,
         Class: String(displayValue(student.class_name)),
-        Session: String(displayValue(student.session)),
+        Session: String(displayValue(convertLegacySessionLabel(student.session))),
       };
     });
 
@@ -668,10 +688,9 @@ export default function Students() {
     );
   };
 
-  const currentAcademicSession = getCurrentAcademicSession();
   const listClassOptions = classes.filter((item) => isAcademicCollegeClass(item.name));
   const sessionFilteredStudents = students.filter(
-    (student) => student.session === currentAcademicSession && student.status !== 'alumni',
+    (student) => academicSessionsMatch(student.session, selectedListSession) && student.status !== 'alumni',
   );
   const filteredStudents = sessionFilteredStudents.filter((student) => {
     if (selectedListClassId && String(student.class_id) !== selectedListClassId) {
@@ -756,6 +775,19 @@ export default function Students() {
             </div>
             <div className="w-full md:w-64">
               <select
+                value={selectedListSession}
+                onChange={(e) => setSelectedListSession(e.target.value)}
+                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              >
+                {academicSessionOptions.map((session) => (
+                  <option key={session} value={session}>
+                    {session}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="w-full md:w-64">
+              <select
                 value={selectedListClassId}
                 onChange={(e) => setSelectedListClassId(e.target.value)}
                 className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
@@ -772,7 +804,7 @@ export default function Students() {
 
           <div className="flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
             <div>
-              Showing current academic session <span className="font-semibold text-slate-900">{currentAcademicSession}</span>
+              Showing academic session <span className="font-semibold text-slate-900">{selectedListSession}</span>
             </div>
             <div>
               {filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'} found
@@ -798,8 +830,13 @@ export default function Students() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center overflow-hidden border border-indigo-100">
-                          {student.photo_url ? (
-                            <img src={student.photo_url} alt={student.name} className="w-full h-full object-cover" />
+                          {student.photo_url && !failedImageKeys[`list-${student.id}`] ? (
+                            <img
+                              src={student.photo_url}
+                              alt={student.name}
+                              className="w-full h-full object-cover"
+                              onError={() => markImageAsFailed(`list-${student.id}`)}
+                            />
                           ) : (
                             <span className="text-indigo-600 font-bold">{student.name[0]}</span>
                           )}
@@ -865,7 +902,7 @@ export default function Students() {
                 {paginatedStudents.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                      No students found for the current academic session and selected class.
+                      No students found for the selected academic session and class.
                     </td>
                   </tr>
                 )}
@@ -1064,12 +1101,9 @@ export default function Students() {
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Session</label>
                     <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.session} onChange={(e) => setFormData({ ...formData, session: e.target.value })}>
-                      <option value="2023-2024">2023-2024</option>
-                      <option value="2024-2025">2024-2025</option>
-                      <option value="2025-2026">2025-2026</option>
-                      <option value="2026-2027">2026-2027</option>
-                      <option value="2027-2028">2027-2028</option>
-                      <option value="2028-2029">2028-2029</option>
+                      {academicSessionOptions.map((session) => (
+                        <option key={session} value={session}>{session}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-2">
@@ -1297,8 +1331,13 @@ export default function Students() {
             <div className="relative -mt-16 flex items-end justify-between mb-10">
               <div className="flex items-end gap-8">
                 <div className="w-36 h-36 rounded-3xl border-8 border-white bg-slate-100 overflow-hidden shadow-2xl">
-                  {selectedStudent.photo_url ? (
-                    <img src={selectedStudent.photo_url} alt={selectedStudent.name} className="w-full h-full object-cover" />
+                  {selectedStudent.photo_url && !failedImageKeys[`profile-${selectedStudent.id}`] ? (
+                    <img
+                      src={selectedStudent.photo_url}
+                      alt={selectedStudent.name}
+                      className="w-full h-full object-cover"
+                      onError={() => markImageAsFailed(`profile-${selectedStudent.id}`)}
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-indigo-200 font-bold text-5xl">
                       {selectedStudent.name[0]}

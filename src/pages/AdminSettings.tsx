@@ -683,7 +683,7 @@ export default function AdminSettings() {
             </div>
             <div>
               <h2 className="font-bold text-slate-900">Academic Session Master</h2>
-              <p className="text-sm text-slate-500">Manage academic years/sessions.</p>
+              <p className="text-sm text-slate-500">Manage 2-year academic session labels.</p>
             </div>
           </div>
 
@@ -691,7 +691,7 @@ export default function AdminSettings() {
             <input
               required
               type="text"
-              placeholder="e.g. 2025-2026"
+              placeholder="e.g. 2025-2027"
               className="w-full rounded-xl bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
               value={sessionForm.name}
               onChange={(e) => setSessionForm({ ...sessionForm, name: e.target.value })}

@@ -23,6 +23,7 @@ export default function Fees() {
   const [students, setStudents] = useState<any[]>([]);
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [profileStudent, setProfileStudent] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState({ amount: '' });
@@ -206,6 +207,18 @@ export default function Fees() {
     : 0;
   const selectedStudentDueAmount = Math.max(selectedStudentTotalFee - selectedStudentPaidAmount, 0);
   const selectedStudentPendingTotal = selectedStudentPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+  const profileStudentPendingFees = profileStudent
+    ? fees
+        .filter((fee) => fee.student_id === profileStudent.id && fee.status === 'pending')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    : [];
+  const profileStudentPaidFees = profileStudent
+    ? fees
+        .filter((fee) => fee.student_id === profileStudent.id && fee.status === 'paid')
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    : [];
+  const profileStudentPendingTotal = profileStudentPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+  const profileStudentPaidTotal = profileStudentPaidFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
 
   const handleStudentSelect = (studentId: string) => {
     const student = students.find((item) => String(item.id) === studentId);
@@ -250,6 +263,11 @@ export default function Fees() {
       discount: '0',
       amount: String(fee.amount || 0),
     }));
+  };
+
+  const openStudentProfile = (studentId: number) => {
+    const student = students.find((item) => item.id === studentId) || null;
+    setProfileStudent(student);
   };
 
   const handleDiscountChange = (discountValue: string) => {
@@ -483,7 +501,15 @@ export default function Fees() {
               {filteredFees.map((fee) => (
                 <tr key={fee.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4 text-sm font-mono text-slate-500">{fee.bill_no}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-slate-900">{fee.student_name}</td>
+                  <td className="px-6 py-4 text-sm font-semibold text-slate-900">
+                    <button
+                      type="button"
+                      onClick={() => openStudentProfile(fee.student_id)}
+                      className="rounded-md text-left text-indigo-700 transition-colors hover:text-indigo-900 hover:underline"
+                    >
+                      {fee.student_name}
+                    </button>
+                  </td>
                   <td className="px-6 py-4 text-sm text-slate-600">{fee.type}</td>
                   <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(Number(fee.amount))}</td>
                   <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(fee.date), 'MMM dd, yyyy')}</td>
@@ -793,6 +819,126 @@ export default function Fees() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {profileStudent && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 p-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">{profileStudent.name}</h3>
+                <p className="mt-1 text-sm font-medium text-slate-500">
+                  {profileStudent.reg_no} • {profileStudent.class_name} • {profileStudent.session}
+                </p>
+              </div>
+              <button
+                onClick={() => setProfileStudent(null)}
+                className="rounded-full p-2 transition-colors hover:bg-slate-100"
+              >
+                <Plus className="h-6 w-6 rotate-45 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-92px)] overflow-y-auto p-6">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Basic Details</p>
+                  <div className="mt-4 space-y-3 text-sm text-slate-700">
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Date of Join</span><span className="text-right font-semibold text-slate-900">{profileStudent.admission_date || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Date of Birth</span><span className="text-right font-semibold text-slate-900">{profileStudent.dob || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Gender</span><span className="text-right font-semibold text-slate-900">{profileStudent.gender || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Stream</span><span className="text-right font-semibold text-slate-900">{profileStudent.stream || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Status</span><span className="text-right font-semibold capitalize text-slate-900">{profileStudent.status || 'NA'}</span></div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Contact Details</p>
+                  <div className="mt-4 space-y-3 text-sm text-slate-700">
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Father</span><span className="text-right font-semibold text-slate-900">{profileStudent.father_name || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Mother</span><span className="text-right font-semibold text-slate-900">{profileStudent.mother_name || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Student Phone</span><span className="text-right font-semibold text-slate-900">{profileStudent.phone || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Father Phone</span><span className="text-right font-semibold text-slate-900">{profileStudent.father_phone || 'NA'}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Address</span><span className="text-right font-semibold text-slate-900">{profileStudent.address || 'NA'}</span></div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Fee Summary</p>
+                  <div className="mt-4 space-y-3 text-sm text-slate-700">
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Pending Rows</span><span className="text-right font-semibold text-rose-600">{profileStudentPendingFees.length}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Pending Amount</span><span className="text-right font-semibold text-rose-600">{formatCurrency(profileStudentPendingTotal)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Paid Rows</span><span className="text-right font-semibold text-emerald-600">{profileStudentPaidFees.length}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Paid Amount</span><span className="text-right font-semibold text-emerald-600">{formatCurrency(profileStudentPaidTotal)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">Hostel</span><span className="text-right font-semibold text-slate-900">{profileStudent.hostel_required || 'NA'}</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <section className="overflow-hidden rounded-2xl border border-slate-100">
+                  <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                    <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Pending Dues</h4>
+                  </div>
+                  <div className="max-h-72 overflow-auto">
+                    {profileStudentPendingFees.length === 0 ? (
+                      <div className="px-5 py-8 text-sm text-slate-500">No pending dues for this student.</div>
+                    ) : (
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-white text-xs uppercase tracking-wider text-slate-500">
+                          <tr>
+                            <th className="px-5 py-3 font-semibold">Ledger</th>
+                            <th className="px-5 py-3 font-semibold">Bill No</th>
+                            <th className="px-5 py-3 font-semibold text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {profileStudentPendingFees.map((fee) => (
+                            <tr key={fee.id}>
+                              <td className="px-5 py-3 text-slate-700">{fee.type}</td>
+                              <td className="px-5 py-3 font-mono text-xs text-slate-500">{fee.bill_no}</td>
+                              <td className="px-5 py-3 text-right font-semibold text-rose-600">{formatCurrency(Number(fee.amount || 0))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-2xl border border-slate-100">
+                  <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                    <h4 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500">Recent Payments</h4>
+                  </div>
+                  <div className="max-h-72 overflow-auto">
+                    {profileStudentPaidFees.length === 0 ? (
+                      <div className="px-5 py-8 text-sm text-slate-500">No payments recorded yet.</div>
+                    ) : (
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-white text-xs uppercase tracking-wider text-slate-500">
+                          <tr>
+                            <th className="px-5 py-3 font-semibold">Ledger</th>
+                            <th className="px-5 py-3 font-semibold">Date</th>
+                            <th className="px-5 py-3 font-semibold text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {profileStudentPaidFees.slice(0, 10).map((fee) => (
+                            <tr key={fee.id}>
+                              <td className="px-5 py-3 text-slate-700">{fee.type}</td>
+                              <td className="px-5 py-3 text-slate-500">{format(new Date(fee.date), 'MMM dd, yyyy')}</td>
+                              <td className="px-5 py-3 text-right font-semibold text-emerald-600">{formatCurrency(Number(fee.amount || 0))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </div>
           </div>
         </div>
       )}

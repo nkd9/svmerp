@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Eye, Filter } from 'lucide-react';
+import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
 
 interface Student {
   id: number;
@@ -36,10 +37,10 @@ export default function Alumni() {
     fetchAlumni();
   }, []);
 
-  const availableSessions = Array.from(new Set(alumni.map(s => s.session).filter(Boolean)));
+  const availableSessions = Array.from(new Set(alumni.map(s => convertLegacySessionLabel(s.session)).filter(Boolean)));
   const filteredAlumni = alumni.filter(s => 
     (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.reg_no.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterSession ? s.session === filterSession : true)
+    (filterSession ? academicSessionsMatch(s.session, filterSession) : true)
   );
 
   if (loading) return <div className="p-8">Loading...</div>;
@@ -91,7 +92,7 @@ export default function Alumni() {
                 <tr key={s.id} className="hover:bg-slate-50">
                   <td className="px-6 py-4 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
                   <td className="px-6 py-4 text-slate-700">{s.stream}</td>
-                  <td className="px-6 py-4 text-slate-700">{s.session}</td>
+                  <td className="px-6 py-4 text-slate-700">{convertLegacySessionLabel(s.session)}</td>
                   <td className="px-6 py-4 text-slate-700">{s.phone}</td>
                   <td className="px-6 py-4 text-right">
                     <button className="text-indigo-600 hover:text-indigo-800 text-sm font-semibold">

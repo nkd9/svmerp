@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, FileText, History, CalendarDays, X, ReceiptIndianRupee, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Download, FileText, History, CalendarDays, X, ReceiptIndianRupee, AlertCircle, ArrowLeft, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -48,6 +49,45 @@ const downloadExcelFile = (rows: Array<Record<string, string | number>>, fileNam
 
 type ReportRow = Record<string, string | number>;
 
+const TOTALABLE_AMOUNT_HEADERS = ['Total Amount', 'Paid Amount', 'Pending Amount', 'Amount'] as const;
+const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
+
+const isAmountHeader = (header: string) =>
+  TOTALABLE_AMOUNT_HEADERS.includes(header as (typeof TOTALABLE_AMOUNT_HEADERS)[number]);
+
+const appendTotalsRow = (rows: ReportRow[]) => {
+  if (!rows.length) {
+    return rows;
+  }
+
+  const headers = Object.keys(rows[0]);
+  const totalHeaders = headers.filter(isAmountHeader);
+  if (totalHeaders.length === 0) {
+    return rows;
+  }
+
+  const labelHeader =
+    headers.find((header) => /student name|name|month|date|bill no/i.test(header)) ||
+    headers[0];
+
+  const totalRow = headers.reduce<ReportRow>((acc, header) => {
+    if (header === labelHeader) {
+      acc[header] = 'Total';
+      return acc;
+    }
+
+    if (totalHeaders.includes(header as (typeof TOTALABLE_AMOUNT_HEADERS)[number])) {
+      acc[header] = rows.reduce((sum, row) => sum + Number(row[header] || 0), 0);
+      return acc;
+    }
+
+    acc[header] = '';
+    return acc;
+  }, {});
+
+  return [...rows, totalRow];
+};
+
 export default function FeeReports() {
   const [fees, setFees] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
@@ -58,6 +98,9 @@ export default function FeeReports() {
   const [reportRows, setReportRows] = useState<ReportRow[]>([]);
   const [dailyCollectionDate, setDailyCollectionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [oldDueSession, setOldDueSession] = useState('');
+  const [oldDueClass, setOldDueClass] = useState('');
+  const [studentReportSearch, setStudentReportSearch] = useState('');
+  const [selectedStudentForReport, setSelectedStudentForReport] = useState('');
   const [selectedClassForDue, setSelectedClassForDue] = useState('');
   const [promotedDueFilters, setPromotedDueFilters] = useState({
     currentClass: '',
@@ -110,7 +153,7 @@ export default function FeeReports() {
     [fees],
   );
   const sessionOptions = useMemo(
-    () => (Array.from(new Set(students.map((student) => String(student.session || '')).filter(Boolean))) as string[]).sort((a, b) => b.localeCompare(a)),
+    () => (Array.from(new Set(students.map((student) => convertLegacySessionLabel(String(student.session || ''))).filter(Boolean))) as string[]).sort((a, b) => b.localeCompare(a)),
     [students],
   );
 
@@ -163,10 +206,28 @@ export default function FeeReports() {
     () => new Map(classes.map((classItem) => [Number(classItem.id), String(classItem.name || '')])),
     [classes],
   );
+  const studentReportMatches = useMemo(() => {
+    const query = studentReportSearch.trim().toLowerCase();
+    const sortedStudents = [...students].sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || '')) || String(a.reg_no || '').localeCompare(String(b.reg_no || '')),
+    );
+
+    if (!query) {
+      return sortedStudents.slice(0, 12);
+    }
+
+    return sortedStudents
+      .filter((student) =>
+        String(student.name || '').toLowerCase().includes(query) ||
+        String(student.reg_no || '').toLowerCase().includes(query) ||
+        String(student.phone || '').includes(studentReportSearch.trim()),
+      )
+      .slice(0, 12);
+  }, [studentReportSearch, students]);
 
   const openReport = (title: string, rows: ReportRow[]) => {
     setActiveReportTitle(title);
-    setReportRows(rows);
+    setReportRows(appendTotalsRow(rows));
     setIsReportModalOpen(true);
   };
 
@@ -212,51 +273,124 @@ export default function FeeReports() {
       };
     });
 
-    const total = filteredRows.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-    openReport(
-      'Daily Collections Report',
-      rows.length
-        ? [
-            ...rows,
-            {
-              Date: '',
-              'Bill No': '',
-              'Student Name': 'Total',
-              'Phone Number': '',
-              Class: '',
-              'Fee Ledger': '',
-              'Total Amount': '',
-              'Paid Amount': '',
-              'Pending Amount': '',
-              Amount: total,
-            },
-          ]
-        : [],
-    );
+    openReport('Daily Collections Report', rows);
   };
 
   const generateOldDueReport = () => {
-    const rows = feesWithStudent
-      .filter((fee) => fee.status === 'pending' && (!oldDueSession || fee.student?.session === oldDueSession))
-      .map((fee) => {
-        const summary = getStudentSummary(fee.student_id);
-        return {
-          'Bill No': fee.bill_no,
-          'Registration No': fee.student?.reg_no || '',
-          'Student Name': fee.student_name,
-          'Phone Number': fee.student?.phone || '',
-          'Educational Year': fee.student?.session || '',
-          Class: fee.student?.class_name || '',
-          'Fee Ledger': fee.type,
-          'Due Date': fee.date,
-          'Total Amount': summary.total_amount,
-          'Paid Amount': summary.paid_amount,
-          'Pending Amount': summary.pending_amount,
-          Amount: Number(fee.amount || 0),
+    const paidOldDueByStudent = feesWithStudent.reduce<Map<number, number>>((acc, fee) => {
+      if (fee.status !== 'paid' || String(fee.type || '') !== 'Old Due Collection') {
+        return acc;
+      }
+
+      const current = acc.get(Number(fee.student_id)) || 0;
+      acc.set(Number(fee.student_id), current + Number(fee.amount || 0));
+      return acc;
+    }, new Map<number, number>());
+
+    const grouped = new Map<
+      number,
+      {
+        bill_no: string;
+        reg_no: string;
+        student_name: string;
+        phone: string;
+        educational_years: Set<string>;
+        classes: Set<string>;
+        ledgers: Set<string>;
+        due_dates: Set<string>;
+        pending_amount: number;
+      }
+    >();
+
+    feesWithStudent
+      .filter(
+        (fee) =>
+          fee.status === 'pending' &&
+          OLD_DUE_LEDGER_TYPES.has(String(fee.type || '')) &&
+          (!oldDueSession || academicSessionsMatch(String(fee.academic_session || fee.student?.session || ''), oldDueSession)) &&
+          (!oldDueClass || String(classNameById.get(Number(fee.class_id)) || '') === oldDueClass),
+      )
+      .forEach((fee) => {
+        const studentId = Number(fee.student_id);
+        const current = grouped.get(studentId) || {
+          bill_no: fee.bill_no,
+          reg_no: fee.student?.reg_no || '',
+          student_name: fee.student_name,
+          phone: fee.student?.phone || '',
+          educational_years: new Set<string>(),
+          classes: new Set<string>(),
+          ledgers: new Set<string>(),
+          due_dates: new Set<string>(),
+          pending_amount: 0,
         };
+
+        const feeClassName = String(classNameById.get(Number(fee.class_id)) || fee.student?.class_name || '');
+        const academicYear = convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || ''));
+
+        if (academicYear) current.educational_years.add(academicYear);
+        if (feeClassName) current.classes.add(feeClassName);
+        if (fee.type) current.ledgers.add(String(fee.type));
+        if (fee.date) current.due_dates.add(String(fee.date));
+        current.pending_amount += Number(fee.amount || 0);
+
+        grouped.set(studentId, current);
       });
 
-    openReport(`Old Due Report${oldDueSession ? ` - ${oldDueSession}` : ''}`, rows);
+    const rows = Array.from(grouped.entries()).map(([studentId, item]) => {
+      const paidAmount = paidOldDueByStudent.get(studentId) || 0;
+      return {
+        'Bill No': item.bill_no,
+        'Registration No': item.reg_no,
+        'Student Name': item.student_name,
+        'Phone Number': item.phone,
+        'Educational Year': Array.from(item.educational_years).join(', '),
+        Class: Array.from(item.classes).join(', '),
+        'Fee Ledger': Array.from(item.ledgers).join(', '),
+        'Due Date': Array.from(item.due_dates).sort().join(', '),
+        'Total Amount': paidAmount + item.pending_amount,
+        'Paid Amount': paidAmount,
+        'Pending Amount': item.pending_amount,
+      };
+    });
+
+    const titleParts = ['Old Due Report'];
+    if (oldDueSession) {
+      titleParts.push(oldDueSession);
+    }
+    if (oldDueClass) {
+      titleParts.push(oldDueClass);
+    }
+
+    openReport(titleParts.join(' - '), rows);
+  };
+
+  const generateStudentReport = () => {
+    const student = students.find((item) => String(item.id) === selectedStudentForReport);
+    if (!student) {
+      alert('Please select a student first.');
+      return;
+    }
+
+    const summary = getStudentSummary(student.id);
+    const rows = feesWithStudent
+      .filter((fee) => fee.student_id === student.id)
+      .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.bill_no || '').localeCompare(String(b.bill_no || '')))
+      .map((fee) => ({
+        Date: fee.date,
+        'Bill No': fee.bill_no,
+        'Registration No': student.reg_no || '',
+        'Student Name': student.name || '',
+        Class: student.class_name || '',
+        'Educational Year': convertLegacySessionLabel(String(student.session || '')),
+        'Fee Ledger': fee.type,
+        Status: fee.status,
+        'Total Amount': summary.total_amount,
+        'Paid Amount': fee.status === 'paid' ? Number(fee.amount || 0) : 0,
+        'Pending Amount': fee.status === 'pending' ? Number(fee.amount || 0) : 0,
+        Amount: Number(fee.amount || 0),
+      }));
+
+    openReport(`Student Fee Report - ${student.name} - ${student.reg_no}`, rows);
   };
 
   const generateDueByClassReport = () => {
@@ -328,8 +462,8 @@ export default function FeeReports() {
         const student = fee.student;
         const feeClassName = classNameById.get(Number(fee.class_id)) || '';
         const currentClassName = String(student.class_name || '');
-        const currentSession = String(student.session || '');
-        const feeSession = String(fee.academic_session || '');
+        const currentSession = convertLegacySessionLabel(String(student.session || ''));
+        const feeSession = convertLegacySessionLabel(String(fee.academic_session || ''));
         const isPromotedDue =
           (fee.class_id && student.class_id && Number(fee.class_id) !== Number(student.class_id)) ||
           (feeSession && currentSession && feeSession !== currentSession);
@@ -342,7 +476,7 @@ export default function FeeReports() {
           return;
         }
 
-        if (promotedDueFilters.currentSession && currentSession !== promotedDueFilters.currentSession) {
+        if (promotedDueFilters.currentSession && !academicSessionsMatch(currentSession, promotedDueFilters.currentSession)) {
           return;
         }
 
@@ -499,6 +633,53 @@ export default function FeeReports() {
 
         <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
+            <Search className="h-5 w-5" />
+            <div>
+              <h2 className="text-lg font-bold">Student Fee Report</h2>
+              <p className="text-sm text-indigo-100">Search one student and view the full individual fee statement.</p>
+            </div>
+          </div>
+          <div className="space-y-4 p-6">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-700">Search Student</label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={studentReportSearch}
+                  onChange={(e) => setStudentReportSearch(e.target.value)}
+                  placeholder="Type student name, reg no, or phone"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Select Student</label>
+              <select
+                value={selectedStudentForReport}
+                onChange={(e) => setSelectedStudentForReport(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
+              >
+                <option value="">Select a student</option>
+                {studentReportMatches.map((student) => (
+                  <option key={student.id} value={student.id}>
+                    {student.name} - {student.reg_no} - {student.class_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={generateStudentReport}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:-translate-y-0.5"
+            >
+              <Download className="h-4 w-4" />
+              Generate Student Report
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <History className="h-5 w-5" />
             <div>
               <h2 className="text-lg font-bold">Promoted Students Due Report</h2>
@@ -591,6 +772,19 @@ export default function FeeReports() {
                 <option value="">All Educational Years</option>
                 {sessionOptions.map((session) => (
                   <option key={session} value={session}>{session}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
+              <select
+                value={oldDueClass}
+                onChange={(e) => setOldDueClass(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
+              >
+                <option value="">All Classes</option>
+                {classOptions.map((className) => (
+                  <option key={className} value={className}>{className}</option>
                 ))}
               </select>
             </div>
@@ -779,7 +973,11 @@ export default function FeeReports() {
                       <tr key={`${activeReportTitle}-${index}`} className="hover:bg-slate-50">
                         {reportHeaders.map((header) => (
                           <td key={header} className="px-6 py-4 text-sm text-slate-700">
-                            {header.toLowerCase().includes('amount') || header.toLowerCase() === 'paid' ? formatCurrency(Number(row[header] || 0)) : String(row[header] ?? '-')}
+                            {isAmountHeader(header)
+                              ? row[header] === '' || row[header] === undefined || row[header] === null
+                                ? '-'
+                                : formatCurrency(Number(row[header] || 0))
+                              : String(row[header] ?? '-')}
                           </td>
                         ))}
                       </tr>

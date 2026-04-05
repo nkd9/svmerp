@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRight, GraduationCap } from 'lucide-react';
+import { getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
 
 interface Student {
   id: number;
@@ -26,12 +27,13 @@ const getPromotableTargetClassName = (className?: string) => {
 };
 
 export default function StudentPromotion() {
+  const academicSessionOptions = getAcademicSessionOptions();
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassModel[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [fromClassId, setFromClassId] = useState('');
-  const [targetSession, setTargetSession] = useState('2025-2026');
+  const [targetSession, setTargetSession] = useState(getCurrentAcademicSession());
   const [targetClassId, setTargetClassId] = useState('');
   const [isGraduation, setIsGraduation] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<number[]>([]);
@@ -160,12 +162,9 @@ export default function StudentPromotion() {
             <div>
               <label className="text-sm font-semibold text-slate-700">Target Academic Session</label>
               <select value={targetSession} onChange={e => setTargetSession(e.target.value)} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="2023-2024">2023-2024</option>
-                <option value="2024-2025">2024-2025</option>
-                <option value="2025-2026">2025-2026</option>
-                <option value="2026-2027">2026-2027</option>
-                <option value="2027-2028">2027-2028</option>
-                <option value="2028-2029">2028-2029</option>
+                {academicSessionOptions.map((session) => (
+                  <option key={session} value={session}>{session}</option>
+                ))}
               </select>
             </div>
           )}
