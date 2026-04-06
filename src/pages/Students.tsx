@@ -1244,15 +1244,15 @@ export default function Students() {
               </section>
 
               <section className="rounded-2xl border border-slate-100 bg-slate-50/60 p-6">
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Fee Setup</h3>
+                <h3 className="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Fee Setup (Dynamic)</h3>
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Coaching Fee</label>
-                    <input type="number" className="w-full px-4 py-2.5 bg-amber-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.coaching_fee} onChange={(e) => setFormData({ ...formData, coaching_fee: Number(e.target.value) })} />
+                    <label className="text-sm font-semibold text-slate-700">Coaching Fee (Rs)</label>
+                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.dynamic_fees?.dynamic_coaching_fee ?? formData.coaching_fee} title="Managed dynamically via Fee Structures" />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Admission Fee</label>
-                    <input type="number" className="w-full px-4 py-2.5 bg-amber-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.admission_fee} onChange={(e) => setFormData({ ...formData, admission_fee: Number(e.target.value) })} />
+                    <label className="text-sm font-semibold text-slate-700">Admission Fee (Rs)</label>
+                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.dynamic_fees?.dynamic_admission_fee ?? formData.admission_fee} title="Managed dynamically via Fee Structures" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Transport</label>
@@ -1262,8 +1262,8 @@ export default function Students() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Transport Fee</label>
-                    <input type="number" className="w-full px-4 py-2.5 bg-amber-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.transport_fee} onChange={(e) => setFormData({ ...formData, transport_fee: Number(e.target.value) })} />
+                    <label className="text-sm font-semibold text-slate-700">Transport Fee (Rs)</label>
+                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.transport === 'Yes' ? (formData.dynamic_fees?.dynamic_transport_fee ?? formData.transport_fee) : 0} title="Managed dynamically via Fee Structures" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Entrance</label>
@@ -1273,8 +1273,8 @@ export default function Students() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Entrance Fee</label>
-                    <input type="number" className="w-full px-4 py-2.5 bg-amber-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.entrance_fee} onChange={(e) => setFormData({ ...formData, entrance_fee: Number(e.target.value) })} />
+                    <label className="text-sm font-semibold text-slate-700">Entrance Fee (Rs)</label>
+                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.entrance === 'Yes' ? (formData.dynamic_fees?.dynamic_entrance_fee ?? formData.entrance_fee) : 0} title="Managed dynamically via Fee Structures" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Fooding</label>
@@ -1284,8 +1284,8 @@ export default function Students() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Fooding Fee</label>
-                    <input type="number" className="w-full px-4 py-2.5 bg-amber-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.fooding_fee} onChange={(e) => setFormData({ ...formData, fooding_fee: Number(e.target.value) })} />
+                    <label className="text-sm font-semibold text-slate-700">Fooding Fee (Rs)</label>
+                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.fooding === 'Yes' ? (formData.dynamic_fees?.dynamic_fooding_fee ?? formData.fooding_fee) : 0} title="Managed dynamically via Fee Structures" />
                   </div>
                 </div>
               </section>
@@ -1462,13 +1462,13 @@ export default function Students() {
                 </div>
 
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 p-6">
-                  <h4 className="mb-4 text-sm font-bold text-slate-900">Fee Setup</h4>
+                  <h4 className="mb-4 text-sm font-bold text-slate-900">Fee Setup (Dynamic)</h4>
                   <div className="space-y-3 text-sm text-slate-600">
-                    <div className="flex items-center justify-between"><span>Coaching Fee</span><span className="font-semibold text-slate-900">Rs {displayValue(selectedStudent.coaching_fee)}</span></div>
-                    <div className="flex items-center justify-between"><span>Admission Fee</span><span className="font-semibold text-slate-900">Rs {displayValue(selectedStudent.admission_fee)}</span></div>
-                    <div className="flex items-center justify-between"><span>Transport</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.transport)} {selectedStudent.transport === 'Yes' ? `(Rs ${displayValue(selectedStudent.transport_fee)})` : ''}</span></div>
-                    <div className="flex items-center justify-between"><span>Entrance</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.entrance)} {selectedStudent.entrance === 'Yes' ? `(Rs ${displayValue(selectedStudent.entrance_fee)})` : ''}</span></div>
-                    <div className="flex items-center justify-between"><span>Fooding</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.fooding)} {selectedStudent.fooding === 'Yes' ? `(Rs ${displayValue(selectedStudent.fooding_fee)})` : ''}</span></div>
+                    <div className="flex items-center justify-between"><span>Coaching Fee</span><span className="font-semibold text-slate-900">Rs {displayValue(selectedStudent.dynamic_fees?.dynamic_coaching_fee ?? selectedStudent.coaching_fee)}</span></div>
+                    <div className="flex items-center justify-between"><span>Admission Fee</span><span className="font-semibold text-slate-900">Rs {displayValue(selectedStudent.dynamic_fees?.dynamic_admission_fee ?? selectedStudent.admission_fee)}</span></div>
+                    <div className="flex items-center justify-between"><span>Transport</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.transport)} {selectedStudent.transport === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_transport_fee ?? selectedStudent.transport_fee)})` : ''}</span></div>
+                    <div className="flex items-center justify-between"><span>Entrance</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.entrance)} {selectedStudent.entrance === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_entrance_fee ?? selectedStudent.entrance_fee)})` : ''}</span></div>
+                    <div className="flex items-center justify-between"><span>Fooding</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.fooding)} {selectedStudent.fooding === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_fooding_fee ?? selectedStudent.fooding_fee)})` : ''}</span></div>
                   </div>
                 </div>
 

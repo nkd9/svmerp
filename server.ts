@@ -60,6 +60,41 @@ function dateString(date = new Date()) {
   return date.toISOString().split("T")[0];
 }
 
+function computeDynamicFees(student: any, feeStructures: any[]) {
+  const rules = feeStructures.filter(
+    (s) => s.academic_session === student.session && s.class_id === student.class_id && s.stream === student.stream
+  );
+
+  let admission_amount = 0;
+  let coaching_amount = 0;
+  let transport_amount = 0;
+  let entrance_amount = 0;
+  let fooding_amount = 0;
+
+  rules.forEach((r) => {
+    const type = String(r.fee_type).toLowerCase();
+    if (type.includes("admission")) admission_amount += Number(r.amount) || 0;
+    else if (type.includes("coaching") || type.includes("tuition")) coaching_amount += Number(r.amount) || 0;
+    else if (type.includes("transport")) transport_amount += Number(r.amount) || 0;
+    else if (type.includes("entrance")) entrance_amount += Number(r.amount) || 0;
+    else if (type.includes("food")) fooding_amount += Number(r.amount) || 0;
+  });
+
+  const hasAdmission = rules.some((r) => String(r.fee_type).toLowerCase().includes("admission"));
+  const hasCoaching = rules.some((r) => String(r.fee_type).toLowerCase().includes("coaching") || String(r.fee_type).toLowerCase().includes("tuition"));
+  const hasTransport = rules.some((r) => String(r.fee_type).toLowerCase().includes("transport"));
+  const hasEntrance = rules.some((r) => String(r.fee_type).toLowerCase().includes("entrance"));
+  const hasFooding = rules.some((r) => String(r.fee_type).toLowerCase().includes("food"));
+
+  return {
+    dynamic_admission_fee: hasAdmission ? admission_amount : Number(student.admission_fee || 0),
+    dynamic_coaching_fee: hasCoaching ? coaching_amount : Number(student.coaching_fee || 0),
+    dynamic_transport_fee: student.transport === "Yes" ? (hasTransport ? transport_amount : Number(student.transport_fee || 0)) : 0,
+    dynamic_entrance_fee: student.entrance === "Yes" ? (hasEntrance ? entrance_amount : Number(student.entrance_fee || 0)) : 0,
+    dynamic_fooding_fee: student.fooding === "Yes" ? (hasFooding ? fooding_amount : Number(student.fooding_fee || 0)) : 0,
+  };
+}
+
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? 0 : parsed;
@@ -350,9 +385,10 @@ async function startServer() {
   });
 
   app.get("/api/students", authenticateToken, async (_req, res) => {
-    const [students, classes] = await Promise.all([
+    const [students, classes, feeStructures] = await Promise.all([
       Student.find().sort({ id: 1 }).lean(),
       ClassModel.find().lean(),
+      FeeStructure.find().lean()
     ]);
     const classMap = buildClassMap(classes.map((item) => stripMongoFields(item) as Record<string, unknown>));
 
@@ -360,6 +396,7 @@ async function startServer() {
       students.map((student) => ({
         ...stripMongoFields(student),
         class_name: classMap.get(student.class_id) || "",
+        dynamic_fees: computeDynamicFees(student, feeStructures)
       })),
     );
   });
@@ -1461,6 +1498,89 @@ async function startServer() {
     res.json(alumni.map((item) => stripMongoFields(item)));
   });
 
+  app.get("/api/fee-ledgers", authenticateToken, async (req, res) => {
+    const ledgers = await FeeLedger.find({ active: true }).sort({ name: 1 }).lean();
+    res.json(ledgers.map((item) => stripMongoFields(item)));
+  });
+
+  app.get("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
+    const structures = await FeeStructure.find().sort({ id: 1 }).lean();
+    res.json(structures.map((item) => stripMongoFields(item)));
+  });
+
+  app.post("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const id = await getNextSequence("fee_structures");
+      const structure = await FeeStructure.create({
+        ...req.body,
+        id,
+      });
+      res.json(stripMongoFields(structure.toObject()));
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/fee-structures/:id", authenticateToken, requireAdmin, async (req, res) => {
+    const structure = await FeeStructure.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
+    if (!structure) return res.status(404).json({ error: "Not found" });
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/fees/apply-structure", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const { academic_session, class_id, stream } = req.body;
+      const numClassId = toNumber(class_id);
+
+      const rules = await FeeStructure.find({ academic_session, class_id: numClassId, stream }).lean();
+      if (rules.length === 0) {
+        return res.status(400).json({ error: "No fee structures defined for this batch/group." });
+      }
+
+      const students = await Student.find({
+        status: "active",
+        session: academic_session,
+        class_id: numClassId,
+        $or: [{ stream: stream }, { stream: { $exists: false } }, { stream: "" }]
+      }).lean();
+
+      if (students.length === 0) {
+        return res.status(400).json({ error: "No active students found in this batch/group." });
+      }
+
+      let count = 0;
+      const date = dateString();
+      for (const student of students) {
+        for (const rule of rules) {
+           const existing = await Fee.findOne({ 
+             student_id: student.id, 
+             academic_session, 
+             type: rule.fee_type 
+           }).lean();
+           
+           if (!existing) {
+             const feeId = await getNextSequence("fees");
+             await Fee.create({
+               id: feeId,
+               student_id: student.id,
+               academic_session,
+               class_id: numClassId,
+               amount: rule.amount,
+               type: rule.fee_type,
+               date,
+               status: "pending",
+               bill_no: `BILL-${Date.now()}-${feeId}`,
+             });
+             count++;
+           }
+        }
+      }
+      res.json({ success: true, count });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.delete("/api/admin/students/:id", authenticateToken, requireAdmin, async (req, res) => {
     const studentId = toNumber(req.params.id);
     const student = await Student.findOneAndDelete({ id: studentId }).lean();
@@ -1529,10 +1649,11 @@ async function startServer() {
       .lean();
 
     const studentIds = students.map((student) => student.id);
-    const [classes, fees, transactions] = await Promise.all([
+    const [classes, fees, transactions, feeStructures] = await Promise.all([
       ClassModel.find().lean(),
       Fee.find({ student_id: { $in: studentIds } }).sort({ id: -1 }).lean(),
       Transaction.find({ student_id: { $in: studentIds } }).sort({ id: -1 }).lean(),
+      FeeStructure.find().lean(),
     ]);
     const classMap = new Map(classes.map((item) => [item.id, item.name]));
 
@@ -1540,6 +1661,7 @@ async function startServer() {
       students: students.map((student) => ({
         ...stripMongoFields(student),
         class_name: classMap.get(student.class_id) || "",
+        dynamic_fees: computeDynamicFees(student, feeStructures),
         coaching_fee: student.coaching_fee || 0,
         admission_fee: student.admission_fee || 0,
         transport: student.transport || "No",

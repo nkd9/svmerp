@@ -28,6 +28,8 @@ export default function Fees() {
   const [editingFee, setEditingFee] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState({ amount: '' });
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedPendingFeeId, setSelectedPendingFeeId] = useState('');
   const [formData, setFormData] = useState({
@@ -161,6 +163,16 @@ export default function Fees() {
     );
   }, [fees, searchQuery]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  const totalPages = Math.ceil(filteredFees.length / pageSize);
+  const paginatedFees = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredFees.slice(start, start + pageSize);
+  }, [filteredFees, currentPage]);
+
   const now = new Date();
   const totalCollected = fees
     .filter((fee) => {
@@ -193,13 +205,17 @@ export default function Fees() {
       String(student.reg_no || '').toLowerCase().includes(query)
     );
   });
-  const selectedStudentTotalFee = selectedStudent
-    ? Number(selectedStudent.admission_fee || 0) +
+  const selectedStudentTotalFee = !selectedStudent ? 0 : (() => {
+    const d = selectedStudent.dynamic_fees;
+    if (d) {
+      return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0);
+    }
+    return Number(selectedStudent.admission_fee || 0) +
       Number(selectedStudent.coaching_fee || 0) +
       Number(selectedStudent.transport_fee || 0) +
       Number(selectedStudent.entrance_fee || 0) +
-      Number(selectedStudent.fooding_fee || 0)
-    : 0;
+      Number(selectedStudent.fooding_fee || 0);
+  })();
   const selectedStudentPaidAmount = selectedStudent
     ? fees
         .filter((fee) => fee.student_id === selectedStudent.id && fee.status === 'paid')
@@ -226,13 +242,17 @@ export default function Fees() {
       .filter((fee) => fee.student_id === student?.id && fee.status === 'pending')
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const firstPendingFee = pendingFeesForStudent[0];
-    const totalFee = student
-      ? Number(student.admission_fee || 0) +
+    const totalFee = !student ? 0 : (() => {
+      const d = student.dynamic_fees;
+      if (d) {
+        return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0);
+      }
+      return Number(student.admission_fee || 0) +
         Number(student.coaching_fee || 0) +
         Number(student.transport_fee || 0) +
         Number(student.entrance_fee || 0) +
-        Number(student.fooding_fee || 0)
-      : 0;
+        Number(student.fooding_fee || 0);
+    })();
     const paidAmount = student
       ? fees
           .filter((fee) => fee.student_id === student.id && fee.status === 'paid')
@@ -498,7 +518,7 @@ export default function Fees() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredFees.map((fee) => (
+              {paginatedFees.map((fee) => (
                 <tr key={fee.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4 text-sm font-mono text-slate-500">{fee.bill_no}</td>
                   <td className="px-6 py-4 text-sm font-semibold text-slate-900">
@@ -550,6 +570,49 @@ export default function Fees() {
             </tbody>
           </table>
         </div>
+        
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-100 bg-slate-50/50 gap-4">
+            <div className="text-sm text-slate-500">
+              Showing <span className="font-semibold text-slate-900">{(currentPage - 1) * pageSize + 1}</span> to <span className="font-semibold text-slate-900">{Math.min(currentPage * pageSize, filteredFees.length)}</span> of <span className="font-semibold text-slate-900">{filteredFees.length}</span> entries
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+              >
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1)
+                .map((page, index, array) => (
+                  <React.Fragment key={page}>
+                    {index > 0 && array[index - 1] !== page - 1 && (
+                      <span className="px-2 py-1.5 text-slate-400">...</span>
+                    )}
+                    <button
+                      onClick={() => setCurrentPage(page)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        currentPage === page
+                          ? 'bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  </React.Fragment>
+              ))}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {isModalOpen && (

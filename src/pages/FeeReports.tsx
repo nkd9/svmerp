@@ -237,7 +237,7 @@ export default function FeeReports() {
         const paidAdmission = feesWithStudent
           .filter((fee) => fee.student_id === student.id && fee.type === 'Admission Fee' && fee.status === 'paid')
           .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-        const expectedAdmission = Number(student.admission_fee || 0);
+        const expectedAdmission = student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0);
         const dueAmount = Math.max(expectedAdmission - paidAdmission, 0);
 
         return {
@@ -390,10 +390,10 @@ export default function FeeReports() {
         Section: student.section || '',
         Stream: student.stream || '',
         'Educational Year': convertLegacySessionLabel(String(student.session || '')),
-        'Profile Admission Fee': Number(student.admission_fee || 0),
-        'Profile Coaching Fee': Number(student.coaching_fee || 0),
-        'Profile Transport Fee': Number(student.transport_fee || 0),
-        'Profile Fooding Fee': Number(student.fooding_fee || 0),
+        'Profile Admission Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0),
+        'Profile Coaching Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_coaching_fee || 0) : Number(student.coaching_fee || 0),
+        'Profile Transport Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_transport_fee || 0) : Number(student.transport_fee || 0),
+        'Profile Fooding Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_fooding_fee || 0) : Number(student.fooding_fee || 0),
         'Fee Ledger': fee.type,
         Status: fee.status,
         'Total Amount': summary.total_amount,
