@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Plus, BookOpen, Award, FileText, X, Download, Search, UserRound, ClipboardList, Eye, Pencil } from 'lucide-react';
+import { Plus, BookOpen, Award, FileText, X, Download, Search, UserRound, ClipboardList, Eye, Pencil, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { printReport } from '../utils/print';
 
 const formatPercentage = (obtained: number, max: number) => {
   if (!max) {
@@ -1022,6 +1023,7 @@ export default function Exams() {
               </select>
               <div className="flex gap-3">
                 <button onClick={generateSubjectReport} className="flex-1 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 font-bold text-white shadow-lg shadow-indigo-200">Generate</button>
+                <button onClick={() => printReport('Subject Wise Report', subjectReportData)} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Printer className="h-4 w-4" /></button>
                 <button onClick={() => downloadExcelFile(subjectReportData, 'subject-wise-report')} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Download className="h-4 w-4" /></button>
               </div>
             </div>
@@ -1043,6 +1045,7 @@ export default function Exams() {
               </select>
               <div className="flex gap-3">
                 <button onClick={generateExamReport} className="flex-1 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 font-bold text-white shadow-lg shadow-indigo-200">Generate</button>
+                <button onClick={() => printReport('Exam Report', examReportData)} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Printer className="h-4 w-4" /></button>
                 <button onClick={() => downloadExcelFile(examReportData, 'exam-report')} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Download className="h-4 w-4" /></button>
               </div>
             </div>
@@ -1074,6 +1077,7 @@ export default function Exams() {
               </select>
               <div className="flex gap-3">
                 <button onClick={generateIndividualReport} className="flex-1 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 font-bold text-white shadow-lg shadow-indigo-200">Generate</button>
+                <button onClick={() => printReport('Individual Report', individualReportData)} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Printer className="h-4 w-4" /></button>
                 <button onClick={() => downloadExcelFile(individualReportData, 'individual-report')} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Download className="h-4 w-4" /></button>
               </div>
             </div>
@@ -1543,6 +1547,13 @@ export default function Exams() {
                 <p className="text-sm text-indigo-100">{activeReportRows.length} records</p>
               </div>
               <div className="flex items-center gap-3">
+                <button
+                  onClick={() => printReport(`${activeReportType || 'report'}-report`.toUpperCase(), activeReportRows)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                >
+                  <Printer size={16} />
+                  Print
+                </button>
                 <button
                   onClick={() => downloadExcelFile(activeReportRows, `${activeReportType || 'report'}-report`)}
                   className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"

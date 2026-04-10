@@ -10,9 +10,11 @@ import {
   UserPlus,
   ArrowLeft,
   Save,
-  Trash2
+  Trash2,
+  Printer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { printReport } from '../utils/print';
 import { academicSessionsMatch, convertLegacySessionLabel, getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
 
 interface Student {
@@ -685,6 +687,39 @@ export default function Students() {
         Total: row.total,
       })),
       fileName,
+    );
+  };
+
+  const printReportResults = () => {
+    const rows = reportData.map((student) => {
+      const baseRow = selectedReportFields.reduce<Record<string, string | number>>((acc, field) => {
+        acc[reportFieldHeaders[field]] = String(displayValue(student[field]));
+        return acc;
+      }, {});
+
+      return {
+        ...baseRow,
+        Class: String(displayValue(student.class_name)),
+        Session: String(displayValue(convertLegacySessionLabel(student.session))),
+      };
+    });
+
+    printReport('Student Report', rows);
+  };
+
+  const printSummary = (rows: Array<{ className: string; SEBC: number; GEN: number; OBC: number; SC: number; ST: number; total: number }>, title: string) => {
+    printReport(
+      title,
+      rows.map((row, index) => ({
+        Sl: index + 1,
+        Class: row.className,
+        SEBC: row.SEBC,
+        GEN: row.GEN,
+        OBC: row.OBC,
+        SC: row.SC,
+        ST: row.ST,
+        Total: row.total,
+      }))
     );
   };
 
@@ -1599,13 +1634,22 @@ export default function Students() {
             <div className="overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-sm">
               <div className="flex items-center justify-between bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4">
                 <h3 className="text-xl font-bold text-white">Total Boys Class Wise</h3>
-                <button
-                  onClick={() => exportSummaryReport(boysSummary, 'boys-class-wise-report')}
-                  className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
-                >
-                  <Download size={16} />
-                  Excel
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => printSummary(boysSummary, 'Boys Class Wise Report')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                  >
+                    <Printer size={16} />
+                    Print
+                  </button>
+                  <button
+                    onClick={() => exportSummaryReport(boysSummary, 'boys-class-wise-report')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                  >
+                    <Download size={16} />
+                    Excel
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto p-6">
                 <table className="w-full text-left">
@@ -1634,13 +1678,22 @@ export default function Students() {
             <div className="overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-sm">
               <div className="flex items-center justify-between bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4">
                 <h3 className="text-xl font-bold text-white">Total Girls Class Wise</h3>
-                <button
-                  onClick={() => exportSummaryReport(girlsSummary, 'girls-class-wise-report')}
-                  className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
-                >
-                  <Download size={16} />
-                  Excel
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => printSummary(girlsSummary, 'Girls Class Wise Report')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                  >
+                    <Printer size={16} />
+                    Print
+                  </button>
+                  <button
+                    onClick={() => exportSummaryReport(girlsSummary, 'girls-class-wise-report')}
+                    className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                  >
+                    <Download size={16} />
+                    Excel
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto p-6">
                 <table className="w-full text-left">
@@ -1763,6 +1816,13 @@ export default function Students() {
                   <p className="text-sm text-indigo-100">{reportData.length} Students</p>
                 </div>
                 <div className="flex items-center gap-3">
+                  <button
+                    onClick={printReportResults}
+                    className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                  >
+                    <Printer size={16} />
+                    Print
+                  </button>
                   <button
                     onClick={exportReportResults}
                     className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"

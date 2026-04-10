@@ -616,9 +616,9 @@ export default function Fees() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
               <h3 className="text-xl font-bold text-slate-900">
                 Student Details
                 {selectedStudent?.reg_no ? (
@@ -634,7 +634,7 @@ export default function Fees() {
                 <Plus className="w-6 h-6 rotate-45 text-slate-400" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-8 p-8">
+            <form onSubmit={handleSubmit} className="space-y-6 p-6 overflow-y-auto">
               <div className="space-y-2">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-500">Select Student</label>
