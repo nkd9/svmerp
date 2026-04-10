@@ -127,3 +127,28 @@ body {
   background: rgba(255, 255, 255, 0.72) !important;
   backdrop-filter: blur(16px);
 }
+
+/* Custom Scrollbar matching the theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--svm-surface-strong);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(75, 103, 242, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--svm-primary);
+}
+
+/* Utility to hide scrollbar but allow scrolling */
+.hide-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, TrendingUp, Download, Search, ArrowRight } from 'lucide-react';
+import { AlertCircle, TrendingUp, Download, Search, ArrowRight, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import { printReport } from '../utils/print';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -159,6 +160,15 @@ export default function Reports() {
           <p className="mb-6 text-sm font-semibold text-slate-700">{pendingFees.length} students with pending dues</p>
           <div className="flex gap-3">
             <button
+              onClick={() => printReport('Due Report', pendingFeeExportRows)}
+              className="flex-1 rounded-xl bg-slate-50 py-2.5 font-bold text-slate-700 transition hover:bg-slate-100"
+            >
+              <span className="inline-flex items-center justify-center gap-2">
+                <Printer className="h-4 w-4" />
+                Print
+              </span>
+            </button>
+            <button
               onClick={handleDueExport}
               className="flex-1 rounded-xl bg-slate-50 py-2.5 font-bold text-slate-700 transition hover:bg-slate-100"
             >
@@ -186,6 +196,15 @@ export default function Reports() {
           <p className="mb-3 text-sm text-slate-500">Export the date-wise collection summary already loaded on this page.</p>
           <p className="mb-6 text-sm font-semibold text-slate-700">{collection.length} collection dates available</p>
           <div className="flex gap-3">
+            <button
+              onClick={() => printReport('Collection Report', collectionExportRows)}
+              className="flex-1 rounded-xl bg-slate-50 py-2.5 font-bold text-slate-700 transition hover:bg-slate-100"
+            >
+              <span className="inline-flex items-center justify-center gap-2">
+                <Printer className="h-4 w-4" />
+                Print
+              </span>
+            </button>
             <button
               onClick={handleCollectionExport}
               className="flex-1 rounded-xl bg-slate-50 py-2.5 font-bold text-slate-700 transition hover:bg-slate-100"

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, FileText, History, CalendarDays, X, ReceiptIndianRupee, AlertCircle, ArrowLeft, Search } from 'lucide-react';
+import { Download, FileText, History, CalendarDays, X, ReceiptIndianRupee, AlertCircle, ArrowLeft, Search, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
+import { printReport } from '../utils/print';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -412,7 +413,7 @@ export default function FeeReports() {
       .filter((fee) => !selectedClassForDue || fee.student?.class_name === selectedClassForDue)
       .forEach((fee) => {
         if (!fee.student) return;
-        
+
         const current = studentStats.get(fee.student.id) || {
           reg_no: fee.student.reg_no || '',
           name: fee.student.name || '',
@@ -422,7 +423,7 @@ export default function FeeReports() {
           paid_amount: 0,
           due_amount: 0
         };
-        
+
         if (fee.status !== 'cancelled') {
           const amount = Number(fee.amount || 0);
           current.total_amount += amount;
@@ -432,7 +433,7 @@ export default function FeeReports() {
             current.due_amount += amount;
           }
         }
-        
+
         studentStats.set(fee.student.id, current);
       });
 
@@ -957,6 +958,13 @@ export default function FeeReports() {
               </div>
               <div className="flex items-center gap-3">
                 <button
+                  onClick={() => printReport(activeReportTitle, reportRows)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
+                >
+                  <Printer size={16} />
+                  Print
+                </button>
+                <button
                   onClick={() => downloadExcelFile(reportRows, activeReportTitle.toLowerCase().replace(/\s+/g, '-'))}
                   className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
                 >
@@ -978,132 +986,132 @@ export default function FeeReports() {
                   <p className="mt-2 text-sm text-slate-500">Try changing the filters and generate the report again.</p>
                 </div>
               ) : activeReportTitle.startsWith('Student Fee Report') ? (
-                  (() => {
-                    const profileRow = reportRows[0];
-                    const totalsRow = reportRows[reportRows.length - 1];
-                    const transactions = reportRows.slice(0, -1);
-                    return (
-                      <div className="p-8 space-y-8 bg-slate-50">
-                        {/* 1. Student Profile */}
-                        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                          <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex items-center justify-between">
-                            <h4 className="font-bold text-slate-800">Student Profile</h4>
-                            <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold uppercase rounded-md tracking-wider">
-                              Session: {String(profileRow['Educational Year'])}
-                            </span>
-                          </div>
-                          <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-6">
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Student Name</p>
-                              <p className="font-bold text-slate-900">{String(profileRow['Student Name'])}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Registration No</p>
-                              <p className="font-bold text-slate-900">{String(profileRow['Registration No'])}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Class & Section</p>
-                              <p className="font-bold text-slate-900">{String(profileRow['Class'])}{profileRow['Section'] ? ` - ${String(profileRow['Section'])}` : ''}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Stream / Group</p>
-                              <p className="font-bold text-slate-900">{String(profileRow['Stream']) || 'N/A'}</p>
-                            </div>
-                            
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Father Name</p>
-                              <p className="font-semibold text-slate-700">{String(profileRow['Father Name']) || 'N/A'}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Mother Name</p>
-                              <p className="font-semibold text-slate-700">{String(profileRow['Mother Name']) || 'N/A'}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Phone Number</p>
-                              <p className="font-semibold text-slate-700">{String(profileRow['Phone Number']) || 'N/A'}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Address</p>
-                              <p className="font-semibold text-slate-700 truncate" title={String(profileRow['Address'])}>{String(profileRow['Address']) || 'N/A'}</p>
-                            </div>
-                          </div>
+                (() => {
+                  const profileRow = reportRows[0];
+                  const totalsRow = reportRows[reportRows.length - 1];
+                  const transactions = reportRows.slice(0, -1);
+                  return (
+                    <div className="p-8 space-y-8 bg-slate-50">
+                      {/* 1. Student Profile */}
+                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+                          <h4 className="font-bold text-slate-800">Student Profile</h4>
+                          <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold uppercase rounded-md tracking-wider">
+                            Session: {String(profileRow['Educational Year'])}
+                          </span>
                         </div>
+                        <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-6">
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Student Name</p>
+                            <p className="font-bold text-slate-900">{String(profileRow['Student Name'])}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Registration No</p>
+                            <p className="font-bold text-slate-900">{String(profileRow['Registration No'])}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Class & Section</p>
+                            <p className="font-bold text-slate-900">{String(profileRow['Class'])}{profileRow['Section'] ? ` - ${String(profileRow['Section'])}` : ''}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Stream / Group</p>
+                            <p className="font-bold text-slate-900">{String(profileRow['Stream']) || 'N/A'}</p>
+                          </div>
 
-                        {/* 2. Overviews / Gross Amounts */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                            <div className="bg-slate-50 border-b border-slate-100 px-6 py-4">
-                              <h4 className="font-bold text-slate-800">Fee Profile (Gross Structure)</h4>
-                            </div>
-                            <div className="p-6 grid grid-cols-2 gap-6">
-                              <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Admission Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Admission Fee'] || 0))}</p></div>
-                              <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Coaching Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Coaching Fee'] || 0))}</p></div>
-                              <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Transport Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Transport Fee'] || 0))}</p></div>
-                              <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Fooding Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Fooding Fee'] || 0))}</p></div>
-                            </div>
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Father Name</p>
+                            <p className="font-semibold text-slate-700">{String(profileRow['Father Name']) || 'N/A'}</p>
                           </div>
-                          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col justify-center gap-6 p-8">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                              <p className="text-sm font-semibold text-slate-600">Total Basis Amount</p>
-                              <p className="text-2xl font-bold text-slate-900">{formatCurrency(Number(profileRow['Total Amount'] || 0))}</p>
-                            </div>
-                            <div className="flex justify-between items-center bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-100">
-                              <p className="text-sm font-semibold text-emerald-800">Total Paid Amount</p>
-                              <p className="text-xl font-bold text-emerald-700">
-                                {formatCurrency(Number(totalsRow['Paid Amount'] || 0))}
-                              </p>
-                            </div>
-                            <div className="flex justify-between items-center bg-rose-50 px-4 py-3 rounded-xl border border-rose-100">
-                              <p className="text-sm font-semibold text-rose-800">Total Pending Dues</p>
-                              <p className="text-xl font-bold text-rose-700">
-                                {formatCurrency(Number(totalsRow['Pending Amount'] || 0))}
-                              </p>
-                            </div>
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Mother Name</p>
+                            <p className="font-semibold text-slate-700">{String(profileRow['Mother Name']) || 'N/A'}</p>
                           </div>
-                        </div>
-
-                        {/* 3. Transaction History */}
-                        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                          <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex flex-col gap-1">
-                            <h4 className="font-bold text-slate-800">Payment & Dues Transactions</h4>
-                            <p className="text-xs text-slate-500">Breakdown of specific fee installments and payments.</p>
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Phone Number</p>
+                            <p className="font-semibold text-slate-700">{String(profileRow['Phone Number']) || 'N/A'}</p>
                           </div>
-                          {transactions.length === 0 ? (
-                            <div className="p-8 text-center text-slate-500">No transactions recorded for this student.</div>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left whitespace-nowrap">
-                                <thead className="bg-slate-50/50">
-                                  <tr className="border-b border-slate-100">
-                                    <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Date</th>
-                                    <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Bill No</th>
-                                    <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Fee Ledger</th>
-                                    <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Status</th>
-                                    <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500 text-right">Row Amount</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {transactions.map((t, index) => (
-                                    <tr key={index} className="hover:bg-slate-50">
-                                      <td className="px-6 py-3 text-sm text-slate-700">{String(t['Date'])}</td>
-                                      <td className="px-6 py-3 text-sm font-mono text-slate-500">{String(t['Bill No'])}</td>
-                                      <td className="px-6 py-3 text-sm text-slate-700 font-medium">{String(t['Fee Ledger'])}</td>
-                                      <td className="px-6 py-3">
-                                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${t['Status'] === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                          {String(t['Status'])}
-                                        </span>
-                                      </td>
-                                      <td className="px-6 py-3 text-sm font-bold text-slate-900 text-right">{formatCurrency(Number(t['Amount']))}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Address</p>
+                            <p className="font-semibold text-slate-700 truncate" title={String(profileRow['Address'])}>{String(profileRow['Address']) || 'N/A'}</p>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })()
+
+                      {/* 2. Overviews / Gross Amounts */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                          <div className="bg-slate-50 border-b border-slate-100 px-6 py-4">
+                            <h4 className="font-bold text-slate-800">Fee Profile (Gross Structure)</h4>
+                          </div>
+                          <div className="p-6 grid grid-cols-2 gap-6">
+                            <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Admission Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Admission Fee'] || 0))}</p></div>
+                            <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Coaching Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Coaching Fee'] || 0))}</p></div>
+                            <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Transport Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Transport Fee'] || 0))}</p></div>
+                            <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Fooding Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Fooding Fee'] || 0))}</p></div>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col justify-center gap-6 p-8">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                            <p className="text-sm font-semibold text-slate-600">Total Basis Amount</p>
+                            <p className="text-2xl font-bold text-slate-900">{formatCurrency(Number(profileRow['Total Amount'] || 0))}</p>
+                          </div>
+                          <div className="flex justify-between items-center bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-100">
+                            <p className="text-sm font-semibold text-emerald-800">Total Paid Amount</p>
+                            <p className="text-xl font-bold text-emerald-700">
+                              {formatCurrency(Number(totalsRow['Paid Amount'] || 0))}
+                            </p>
+                          </div>
+                          <div className="flex justify-between items-center bg-rose-50 px-4 py-3 rounded-xl border border-rose-100">
+                            <p className="text-sm font-semibold text-rose-800">Total Pending Dues</p>
+                            <p className="text-xl font-bold text-rose-700">
+                              {formatCurrency(Number(totalsRow['Pending Amount'] || 0))}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Transaction History */}
+                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex flex-col gap-1">
+                          <h4 className="font-bold text-slate-800">Payment & Dues Transactions</h4>
+                          <p className="text-xs text-slate-500">Breakdown of specific fee payments and dues.</p>
+                        </div>
+                        {transactions.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500">No transactions recorded for this student.</div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left whitespace-nowrap">
+                              <thead className="bg-slate-50/50">
+                                <tr className="border-b border-slate-100">
+                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Date</th>
+                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Bill No</th>
+                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Fee Ledger</th>
+                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Status</th>
+                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500 text-right">Row Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {transactions.map((t, index) => (
+                                  <tr key={index} className="hover:bg-slate-50">
+                                    <td className="px-6 py-3 text-sm text-slate-700">{String(t['Date'])}</td>
+                                    <td className="px-6 py-3 text-sm font-mono text-slate-500">{String(t['Bill No'])}</td>
+                                    <td className="px-6 py-3 text-sm text-slate-700 font-medium">{String(t['Fee Ledger'])}</td>
+                                    <td className="px-6 py-3">
+                                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${t['Status'] === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                        {String(t['Status'])}
+                                      </span>
+                                    </td>
+                                    <td className="px-6 py-3 text-sm font-bold text-slate-900 text-right">{formatCurrency(Number(t['Amount']))}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <table className="w-full text-left">
                   <thead className="sticky top-0 bg-white">
