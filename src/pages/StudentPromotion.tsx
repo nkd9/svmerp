@@ -241,39 +241,37 @@ export default function StudentPromotion() {
               </p>
             </div>
           )}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left whitespace-nowrap">
-              <thead>
-                <tr className="bg-slate-50">
-                  <th className="px-6 py-3">
-                    <input type="checkbox" onChange={handleSelectAll} checked={eligibleStudents.length > 0 && selectedStudents.length === eligibleStudents.length} className="w-4 h-4 text-indigo-600 rounded" />
-                  </th>
-                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student & Reg No</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Year / Class</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
-                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Session</th>
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-slate-50">
+                <th className="px-6 py-3">
+                  <input type="checkbox" onChange={handleSelectAll} checked={eligibleStudents.length > 0 && selectedStudents.length === eligibleStudents.length} className="w-4 h-4 text-indigo-600 rounded" />
+                </th>
+                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student & Reg No</th>
+                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Year / Class</th>
+                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
+                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Session</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+              {eligibleStudents.map(s => (
+                <tr key={s.id} className="hover:bg-slate-50">
+                  <td className="px-6 py-3">
+                    <input type="checkbox" checked={selectedStudents.includes(s.id)} onChange={() => handleSelect(s.id)} className="w-4 h-4 text-indigo-600 rounded" />
+                  </td>
+                  <td className="px-6 py-3 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
+                  <td className="px-6 py-3 text-slate-700">{s.class_name}</td>
+                  <td className="px-6 py-3 text-slate-700">{s.stream}</td>
+                  <td className="px-6 py-3 text-slate-700">{s.session}</td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
-                {eligibleStudents.map(s => (
-                  <tr key={s.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-3">
-                      <input type="checkbox" checked={selectedStudents.includes(s.id)} onChange={() => handleSelect(s.id)} className="w-4 h-4 text-indigo-600 rounded" />
-                    </td>
-                    <td className="px-6 py-3 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
-                    <td className="px-6 py-3 text-slate-700">{s.class_name}</td>
-                    <td className="px-6 py-3 text-slate-700">{s.stream}</td>
-                    <td className="px-6 py-3 text-slate-700">{s.session}</td>
-                  </tr>
-                ))}
-                {eligibleStudents.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No students found for this class.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {eligibleStudents.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No students found for this class.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

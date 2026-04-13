@@ -1000,7 +1000,7 @@ export default function FeeReports() {
                             Session: {String(profileRow['Educational Year'])}
                           </span>
                         </div>
-                        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-6">
                           <div>
                             <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Student Name</p>
                             <p className="font-bold text-slate-900">{String(profileRow['Student Name'])}</p>
@@ -1043,7 +1043,7 @@ export default function FeeReports() {
                           <div className="bg-slate-50 border-b border-slate-100 px-6 py-4">
                             <h4 className="font-bold text-slate-800">Fee Profile (Gross Structure)</h4>
                           </div>
-                          <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                          <div className="p-6 grid grid-cols-2 gap-6">
                             <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Admission Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Admission Fee'] || 0))}</p></div>
                             <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Coaching Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Coaching Fee'] || 0))}</p></div>
                             <div><p className="text-xs text-slate-500 uppercase font-semibold mb-1">Transport Fee</p><p className="font-bold text-slate-900">{formatCurrency(Number(profileRow['Profile Transport Fee'] || 0))}</p></div>
@@ -1113,9 +1113,8 @@ export default function FeeReports() {
                   );
                 })()
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left whitespace-nowrap">
-                    <thead className="sticky top-0 bg-white">
+                <table className="w-full text-left">
+                  <thead className="sticky top-0 bg-white">
                     <tr className="border-b border-slate-100">
                       {reportHeaders.map((header) => (
                         <th key={header} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1140,7 +1139,6 @@ export default function FeeReports() {
                     ))}
                   </tbody>
                 </table>
-                </div>
               )}
             </div>
           </div>

@@ -592,7 +592,7 @@ export default function AdminSettings() {
               <p className="text-xs text-slate-500">Showing first 25 students. Use this to quickly spot structure vs ledger gaps.</p>
             </div>
             <div className="max-h-96 overflow-auto">
-              <table className="w-full text-left text-sm whitespace-nowrap">
+              <table className="w-full text-left text-sm">
                 <thead className="bg-white text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Student</th>

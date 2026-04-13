@@ -847,8 +847,7 @@ export default function Students() {
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left whitespace-nowrap">
+            <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>
                   <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student</th>
@@ -944,7 +943,6 @@ export default function Students() {
                 )}
               </tbody>
             </table>
-            </div>
           </div>
 
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1842,34 +1840,32 @@ export default function Students() {
               </div>
               <div className="max-h-[calc(88vh-88px)] overflow-auto">
                 {reportData.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left whitespace-nowrap">
-                      <thead className="sticky top-0 z-10 bg-white">
-                        <tr className="border-b border-slate-100">
-                          {selectedReportFields.map((field) => (
-                            <th key={field} className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">
-                              {reportFieldHeaders[field]}
-                            </th>
-                          ))}
-                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Class</th>
-                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Session</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {reportData.map((s) => (
-                          <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                            {selectedReportFields.map((field) => (
-                              <td key={field} className="px-8 py-4 text-sm text-slate-600">
-                                {displayValue(s[field])}
-                              </td>
-                            ))}
-                            <td className="px-8 py-4 text-sm text-slate-600">{displayValue(s.class_name)}</td>
-                            <td className="px-8 py-4 text-sm text-slate-600">{displayValue(s.session)}</td>
-                          </tr>
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 z-10 bg-white">
+                      <tr className="border-b border-slate-100">
+                        {selectedReportFields.map((field) => (
+                          <th key={field} className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">
+                            {reportFieldHeaders[field]}
+                          </th>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        <th className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Class</th>
+                        <th className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Session</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {reportData.map((s) => (
+                        <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                          {selectedReportFields.map((field) => (
+                            <td key={field} className="px-8 py-4 text-sm text-slate-600">
+                              {displayValue(s[field])}
+                            </td>
+                          ))}
+                          <td className="px-8 py-4 text-sm text-slate-600">{displayValue(s.class_name)}</td>
+                          <td className="px-8 py-4 text-sm text-slate-600">{displayValue(s.session)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 ) : (
                   <div className="px-8 py-16 text-center">
                     <h4 className="text-lg font-semibold text-slate-900">No results found</h4>

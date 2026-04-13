@@ -783,7 +783,7 @@ export default function Exams() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-2 gap-4 mb-6">
                     <div>
                       <div className="text-xs text-slate-500 font-medium mb-1">Exam Date</div>
                       <div className="text-sm font-semibold text-slate-700">{exam.date}</div>
@@ -846,10 +846,10 @@ export default function Exams() {
             </select>
           </div>
         </div>
-        <div className="w-full overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-wider">
-              <tr>
+        <div className="w-full">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                 <th className="p-2 font-semibold">Reg No</th>
                 <th className="p-2 font-semibold">Student</th>
                 <th className="p-2 font-semibold hidden lg:table-cell">Class</th>
@@ -1146,7 +1146,7 @@ export default function Exams() {
               {examForm.class_id && examFormSubjects.length > 0 && (
                 <div className="space-y-3">
                   <label className="text-sm font-semibold text-slate-700">Subject Max Marks</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-2">
+                  <div className="grid grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-2">
                     {examFormSubjects.map(subject => {
                       const item = examForm.subject_max_marks.find(sm => sm.subject_id === subject.id);
                       return (
@@ -1260,7 +1260,7 @@ export default function Exams() {
               {examForm.class_id && examFormSubjects.length > 0 && (
                 <div className="space-y-3">
                   <label className="text-sm font-semibold text-slate-700">Subject Max Marks</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-2">
+                  <div className="grid grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-2">
                     {examFormSubjects.map(subject => {
                       const item = examForm.subject_max_marks.find(sm => sm.subject_id === subject.id);
                       return (
@@ -1448,8 +1448,7 @@ export default function Exams() {
               {resultRows.length === 0 ? (
                 <div className="p-10 text-center text-slate-500">No marks entered for this exam yet.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left whitespace-nowrap">
+                <table className="w-full text-left">
                   <thead className="sticky top-0 bg-white border-b border-slate-100">
                     <tr>
                       <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Student</th>
@@ -1481,7 +1480,6 @@ export default function Exams() {
                     ))}
                   </tbody>
                 </table>
-                </div>
               )}
             </div>
           </div>
@@ -1506,8 +1504,7 @@ export default function Exams() {
               {selectedStudentMarksRows.length === 0 ? (
                 <div className="p-10 text-center text-slate-500">No marks entered for this student yet.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left whitespace-nowrap">
+                <table className="w-full text-left">
                   <thead className="sticky top-0 bg-white border-b border-slate-100">
                     <tr>
                       <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Exam</th>
@@ -1533,7 +1530,6 @@ export default function Exams() {
                     ))}
                   </tbody>
                 </table>
-                </div>
               )}
             </div>
           </div>
@@ -1636,8 +1632,7 @@ export default function Exams() {
                   ))}
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left whitespace-nowrap">
+                <table className="w-full text-left">
                   <thead className="sticky top-0 bg-white">
                     <tr className="border-b border-slate-100">
                       <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Student</th>
@@ -1669,7 +1664,6 @@ export default function Exams() {
                     ))}
                   </tbody>
                 </table>
-                </div>
               )}
             </div>
           </div>

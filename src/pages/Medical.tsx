@@ -70,7 +70,7 @@ export default function Medical() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left whitespace-nowrap">
+          <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                 <th className="px-6 py-4 font-semibold">Student</th>
