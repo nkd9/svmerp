@@ -26,6 +26,7 @@ import {
   User,
   AcademicSessionMaster,
   StreamMaster,
+  AuditLog,
   getNextSequence,
 } from "./server/models.ts";
 
@@ -58,6 +59,18 @@ function stripMongoFields<T extends Record<string, unknown>>(doc: T | null | und
 
 function dateString(date = new Date()) {
   return date.toISOString().split("T")[0];
+}
+
+function formatAppBillNo(feeId: number) {
+  return `SVM-${String(feeId).padStart(6, "0")}`;
+}
+
+function summarizeChangedFields(before: Record<string, any> | null | undefined, after: Record<string, any> | null | undefined) {
+  if (!before || !after) return [];
+  const ignored = new Set(["_id"]);
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((key) => !ignored.has(key))
+    .filter((key) => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null));
 }
 
 function computeDynamicFees(student: any, feeStructures: any[]) {
@@ -297,6 +310,35 @@ async function startServer() {
     next();
   };
 
+  async function writeAuditLog(req: any, input: {
+    action: string;
+    entity: string;
+    entity_id?: string | number;
+    summary?: string;
+    before?: unknown;
+    after?: unknown;
+  }) {
+    try {
+      const id = await getNextSequence("audit_logs");
+      await AuditLog.create({
+        id,
+        user_id: toNumber(req.user?.id),
+        username: req.user?.username || "",
+        role: req.user?.role || "",
+        action: input.action,
+        entity: input.entity,
+        entity_id: String(input.entity_id ?? ""),
+        summary: input.summary || "",
+        before: input.before ?? null,
+        after: input.after ?? null,
+        date: dateString(),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Audit log write failed", error);
+    }
+  }
+
   app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
     const user = await User.findOne({ username }).lean();
@@ -320,6 +362,196 @@ async function startServer() {
         name: user.name,
       },
     });
+  });
+
+  app.get("/api/admin/audit-logs", authenticateToken, requireAdmin, async (req, res) => {
+    const limit = Math.min(toNumber(req.query.limit) || 80, 250);
+    const logs = await AuditLog.find().sort({ id: -1 }).limit(limit).lean();
+    res.json(logs.map((item) => stripMongoFields(item)));
+  });
+
+  app.get("/api/admin/backup", authenticateToken, requireAdmin, async (req, res) => {
+    const [
+      students,
+      fees,
+      transactions,
+      classes,
+      ledgers,
+      structures,
+      sessions,
+      streams,
+      subjects,
+      exams,
+      marks,
+      users,
+    ] = await Promise.all([
+      Student.find().lean(),
+      Fee.find().lean(),
+      Transaction.find().lean(),
+      ClassModel.find().lean(),
+      FeeLedger.find().lean(),
+      FeeStructure.find().lean(),
+      AcademicSessionMaster.find().lean(),
+      StreamMaster.find().lean(),
+      Subject.find().lean(),
+      Exam.find().lean(),
+      Mark.find().lean(),
+      User.find().select("-password").lean(),
+    ]);
+
+    await writeAuditLog(req, {
+      action: "export",
+      entity: "backup",
+      summary: "Exported production backup JSON",
+    });
+
+    res.setHeader("content-type", "application/json");
+    res.setHeader("content-disposition", `attachment; filename="svm-erp-backup-${dateString()}.json"`);
+    res.send(JSON.stringify({
+      exported_at: new Date().toISOString(),
+      students,
+      fees,
+      transactions,
+      classes,
+      fee_ledgers: ledgers,
+      fee_structures: structures,
+      sessions,
+      streams,
+      subjects,
+      exams,
+      marks,
+      users,
+    }, null, 2));
+  });
+
+  app.get("/api/admin/data-health", authenticateToken, requireAdmin, async (_req, res) => {
+    const [classes, students, fees, ledgers] = await Promise.all([
+      ClassModel.find().lean(),
+      Student.find().lean(),
+      Fee.find().lean(),
+      FeeLedger.find().lean(),
+    ]);
+    const classIds = new Set(classes.map((item) => Number(item.id)));
+    const studentIds = new Set(students.map((item) => Number(item.id)));
+    const regCounts = new Map<string, number>();
+    const billCounts = new Map<string, number>();
+    students.forEach((student) => {
+      const regNo = String(student.reg_no || "").trim().toUpperCase();
+      if (regNo) regCounts.set(regNo, (regCounts.get(regNo) || 0) + 1);
+    });
+    fees.forEach((fee) => {
+      const billNo = String(fee.bill_no || "").trim().toUpperCase();
+      if (billNo) billCounts.set(billNo, (billCounts.get(billNo) || 0) + 1);
+    });
+
+    const duplicateRegNos = [...regCounts.entries()].filter(([, count]) => count > 1);
+    const duplicateBillNos = [...billCounts.entries()].filter(([, count]) => count > 1);
+    const missingClassStudents = students.filter((student) => !classIds.has(Number(student.class_id)));
+    const missingSessionStudents = students.filter((student) => !String(student.session || "").trim());
+    const orphanFees = fees.filter((fee) => !studentIds.has(Number(fee.student_id)));
+    const brokenPhotoUrls = students.filter((student) => {
+      const value = String(student.photo_url || "");
+      return value && !/^https:\/\/res\.cloudinary\.com\//i.test(value);
+    });
+    const duplicateFeeGroups = await Fee.aggregate([
+      {
+        $group: {
+          _id: {
+            student_id: "$student_id",
+            status: "$status",
+            type: "$type",
+            amount: "$amount",
+            academic_session: "$academic_session",
+            class_id: "$class_id",
+            date: "$date",
+          },
+          count: { $sum: 1 },
+          bill_nos: { $push: "$bill_no" },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 20 },
+    ]);
+
+    const issues = [
+      { label: "Duplicate registration numbers", count: duplicateRegNos.length, severity: duplicateRegNos.length ? "high" : "ok" },
+      { label: "Duplicate bill numbers", count: duplicateBillNos.length, severity: duplicateBillNos.length ? "high" : "ok" },
+      { label: "Students with missing class", count: missingClassStudents.length, severity: missingClassStudents.length ? "high" : "ok" },
+      { label: "Students with missing session", count: missingSessionStudents.length, severity: missingSessionStudents.length ? "medium" : "ok" },
+      { label: "Fee rows without matching student", count: orphanFees.length, severity: orphanFees.length ? "high" : "ok" },
+      { label: "Non-Cloudinary photo URLs", count: brokenPhotoUrls.length, severity: brokenPhotoUrls.length ? "medium" : "ok" },
+      { label: "Suspicious duplicate fee groups", count: duplicateFeeGroups.length, severity: duplicateFeeGroups.length ? "medium" : "ok" },
+    ];
+
+    res.json({
+      checked_at: new Date().toISOString(),
+      totals: {
+        students: students.length,
+        fees: fees.length,
+        ledgers: ledgers.length,
+        classes: classes.length,
+      },
+      issues,
+      samples: {
+        duplicate_reg_nos: duplicateRegNos.slice(0, 10).map(([reg_no, count]) => ({ reg_no, count })),
+        duplicate_bill_nos: duplicateBillNos.slice(0, 10).map(([bill_no, count]) => ({ bill_no, count })),
+        missing_class_students: missingClassStudents.slice(0, 10).map((student) => ({ id: student.id, name: student.name, reg_no: student.reg_no })),
+        missing_session_students: missingSessionStudents.slice(0, 10).map((student) => ({ id: student.id, name: student.name, reg_no: student.reg_no })),
+        orphan_fees: orphanFees.slice(0, 10).map((fee) => ({ id: fee.id, bill_no: fee.bill_no, student_id: fee.student_id })),
+        broken_photo_urls: brokenPhotoUrls.slice(0, 10).map((student) => ({ id: student.id, name: student.name, reg_no: student.reg_no })),
+        duplicate_fee_groups: duplicateFeeGroups,
+      },
+    });
+  });
+
+  app.get("/api/admin/fee-reconciliation", authenticateToken, requireAdmin, async (_req, res) => {
+    const [students, fees, classes, structures] = await Promise.all([
+      Student.find().lean(),
+      Fee.find().lean(),
+      ClassModel.find().lean(),
+      FeeStructure.find().lean(),
+    ]);
+    const classNameById = new Map(classes.map((item) => [Number(item.id), String(item.name || "")]));
+    const feesByStudent = new Map<number, any[]>();
+    fees.forEach((fee) => {
+      const rows = feesByStudent.get(Number(fee.student_id)) || [];
+      rows.push(fee);
+      feesByStudent.set(Number(fee.student_id), rows);
+    });
+
+    const rows = students.map((student) => {
+      const studentFees = feesByStudent.get(Number(student.id)) || [];
+      const structureTotal = structures
+        .filter((rule) =>
+          rule.academic_session === student.session &&
+          Number(rule.class_id) === Number(student.class_id) &&
+          String(rule.stream || "") === String(student.stream || ""),
+        )
+        .reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
+      const paid = studentFees.filter((fee) => fee.status === "paid").reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+      const pending = studentFees.filter((fee) => fee.status === "pending").reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+      const cancelled = studentFees.filter((fee) => fee.status === "cancelled").reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+      const discount = studentFees.reduce((sum, fee) => sum + Number(fee.discount || 0), 0);
+
+      return {
+        student_id: student.id,
+        reg_no: student.reg_no,
+        name: student.name,
+        class_name: classNameById.get(Number(student.class_id)) || "",
+        session: student.session,
+        stream: student.stream,
+        structure_total: structureTotal,
+        paid,
+        pending,
+        cancelled,
+        discount,
+        balance_by_structure: Math.max(structureTotal - paid - discount, 0),
+        ledger_balance: pending,
+      };
+    });
+
+    res.json(rows);
   });
 
   app.get("/api/uploads/student-photo-signature", authenticateToken, async (_req, res) => {
@@ -559,6 +791,14 @@ async function startServer() {
           date: paymentDate,
           description: `Pending fee settled: ${updatedFee.type}${paymentMode ? ` (${paymentMode})` : ""}`,
         });
+        await writeAuditLog(req, {
+          action: "settle_pending_fee",
+          entity: "fee",
+          entity_id: updatedFee.id,
+          summary: `Settled ${updatedFee.type} for student ${updatedFee.student_id}`,
+          before: primaryFee,
+          after: updatedFee,
+        });
 
         return res.json({
           id: updatedFee.id,
@@ -609,7 +849,7 @@ async function startServer() {
         discount: paymentDiscount,
         mode: paymentMode,
         reference_no: paymentReference,
-        bill_no: req.body.bill_no,
+        bill_no: String(req.body.bill_no || "").trim() || formatAppBillNo(feeId),
       };
 
       const fee = await Fee.create(payload);
@@ -623,6 +863,13 @@ async function startServer() {
         date: payload.date,
         description: `Fee payment: ${payload.type}${payload.mode ? ` (${payload.mode})` : ""}`,
       });
+      await writeAuditLog(req, {
+        action: "create_fee_payment",
+        entity: "fee",
+        entity_id: fee.id,
+        summary: `Created ${payload.type} payment ${payload.bill_no}`,
+        after: fee.toObject(),
+      });
 
       res.json({ id: fee.id });
     } catch (error: any) {
@@ -635,6 +882,7 @@ async function startServer() {
       const feeId = toNumber(req.params.id);
       const updatedAmount = toNumber(req.body.amount);
 
+      const beforeFee = await Fee.findOne({ id: feeId }).lean();
       const fee = await Fee.findOneAndUpdate(
         { id: feeId },
         { amount: updatedAmount },
@@ -654,6 +902,14 @@ async function startServer() {
         category: "fee-adjustment",
         date: dateString(),
         description: `Fee amount manually adjusted: ${fee.type}`,
+      });
+      await writeAuditLog(req, {
+        action: "update_fee_amount",
+        entity: "fee",
+        entity_id: fee.id,
+        summary: `Updated ${fee.bill_no} amount to ${updatedAmount}`,
+        before: beforeFee,
+        after: fee,
       });
 
       res.json({ success: true, fee });
@@ -1128,6 +1384,13 @@ async function startServer() {
         role: req.body.role || "staff",
         name: req.body.name,
       });
+      await writeAuditLog(req, {
+        action: "create_user",
+        entity: "user",
+        entity_id: user.id,
+        summary: `Created user ${user.username}`,
+        after: { id: user.id, username: user.username, role: user.role, name: user.name },
+      });
 
       res.json({
         id: user.id,
@@ -1150,6 +1413,13 @@ async function startServer() {
     if (!deleted) {
       return res.status(404).json({ error: "User not found" });
     }
+    await writeAuditLog(req, {
+      action: "delete_user",
+      entity: "user",
+      entity_id: deleted.id,
+      summary: `Deleted user ${deleted.username}`,
+      before: { id: deleted.id, username: deleted.username, role: deleted.role, name: deleted.name },
+    });
 
     res.json({ success: true });
   });
@@ -1169,6 +1439,13 @@ async function startServer() {
           ? req.body.batch_names.filter(Boolean)
           : [],
       });
+      await writeAuditLog(req, {
+        action: "create_class",
+        entity: "class",
+        entity_id: classDoc.id,
+        summary: `Created class ${classDoc.name}`,
+        after: classDoc.toObject(),
+      });
 
       res.json(stripMongoFields(classDoc.toObject()));
     } catch (error: any) {
@@ -1186,6 +1463,13 @@ async function startServer() {
     
     // Also delete any subjects linked to this class
     await Subject.deleteMany({ class_id: classId });
+    await writeAuditLog(req, {
+      action: "delete_class",
+      entity: "class",
+      entity_id: deleted.id,
+      summary: `Deleted class ${deleted.name}`,
+      before: deleted,
+    });
 
     res.json({ success: true });
   });
@@ -1208,6 +1492,13 @@ async function startServer() {
         name: req.body.name,
         active: req.body.active ?? true,
       });
+      await writeAuditLog(req, {
+        action: "create_session",
+        entity: "session",
+        entity_id: session.id,
+        summary: `Created session ${session.name}`,
+        after: session.toObject(),
+      });
       res.json(stripMongoFields(session.toObject()));
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -1217,6 +1508,13 @@ async function startServer() {
   app.delete("/api/admin/sessions/:id", authenticateToken, requireAdmin, async (req, res) => {
     const deleted = await AcademicSessionMaster.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
     if (!deleted) return res.status(404).json({ error: "Session not found" });
+    await writeAuditLog(req, {
+      action: "delete_session",
+      entity: "session",
+      entity_id: deleted.id,
+      summary: `Deleted session ${deleted.name}`,
+      before: deleted,
+    });
     res.json({ success: true });
   });
 
@@ -1238,6 +1536,13 @@ async function startServer() {
         name: req.body.name,
         active: req.body.active ?? true,
       });
+      await writeAuditLog(req, {
+        action: "create_stream",
+        entity: "stream",
+        entity_id: stream.id,
+        summary: `Created stream ${stream.name}`,
+        after: stream.toObject(),
+      });
       res.json(stripMongoFields(stream.toObject()));
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -1247,6 +1552,13 @@ async function startServer() {
   app.delete("/api/admin/streams/:id", authenticateToken, requireAdmin, async (req, res) => {
     const deleted = await StreamMaster.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
     if (!deleted) return res.status(404).json({ error: "Stream not found" });
+    await writeAuditLog(req, {
+      action: "delete_stream",
+      entity: "stream",
+      entity_id: deleted.id,
+      summary: `Deleted stream ${deleted.name}`,
+      before: deleted,
+    });
     res.json({ success: true });
   });
 
@@ -1269,6 +1581,13 @@ async function startServer() {
         description: req.body.description || "",
         active: req.body.active ?? true,
       });
+      await writeAuditLog(req, {
+        action: "create_fee_ledger",
+        entity: "fee_ledger",
+        entity_id: ledger.id,
+        summary: `Created fee ledger ${ledger.name}`,
+        after: ledger.toObject(),
+      });
 
       res.json(stripMongoFields(ledger.toObject()));
     } catch (error: any) {
@@ -1277,6 +1596,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/students/:id/class", authenticateToken, requireAdmin, async (req, res) => {
+    const beforeStudent = await Student.findOne({ id: toNumber(req.params.id) }).lean();
     const student = await Student.findOneAndUpdate(
       { id: toNumber(req.params.id) },
       { class_id: toNumber(req.body.class_id) },
@@ -1286,12 +1606,21 @@ async function startServer() {
     if (!student) {
       return res.status(404).json({ error: "Student not found" });
     }
+    await writeAuditLog(req, {
+      action: "update_student_class",
+      entity: "student",
+      entity_id: student.id,
+      summary: `Changed class for ${student.reg_no}`,
+      before: beforeStudent,
+      after: student,
+    });
 
     res.json({ success: true });
   });
 
   app.put("/api/admin/students/:id/reg-no", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      const beforeStudent = await Student.findOne({ id: toNumber(req.params.id) }).lean();
       const student = await Student.findOneAndUpdate(
         { id: toNumber(req.params.id) },
         { reg_no: req.body.reg_no },
@@ -1301,6 +1630,14 @@ async function startServer() {
       if (!student) {
         return res.status(404).json({ error: "Student not found" });
       }
+      await writeAuditLog(req, {
+        action: "update_student_reg_no",
+        entity: "student",
+        entity_id: student.id,
+        summary: `Changed reg no from ${beforeStudent?.reg_no || ""} to ${student.reg_no}`,
+        before: beforeStudent,
+        after: student,
+      });
 
       res.json({ success: true });
     } catch (error: any) {
@@ -1310,6 +1647,7 @@ async function startServer() {
 
   app.put("/api/admin/students/:id/fee-setup", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      const beforeStudent = await Student.findOne({ id: toNumber(req.params.id) }).lean();
       const student = await Student.findOneAndUpdate(
         { id: toNumber(req.params.id) },
         {
@@ -1328,6 +1666,14 @@ async function startServer() {
       if (!student) {
         return res.status(404).json({ error: "Student not found" });
       }
+      await writeAuditLog(req, {
+        action: "update_student_fee_setup",
+        entity: "student",
+        entity_id: student.id,
+        summary: `Updated fee setup for ${student.reg_no}`,
+        before: beforeStudent,
+        after: student,
+      });
 
       res.json({ success: true });
     } catch (error: any) {
@@ -1361,6 +1707,13 @@ async function startServer() {
         fee_type: req.body.fee_type,
         amount: toNumber(req.body.amount),
       });
+      await writeAuditLog(req, {
+        action: "create_fee_structure",
+        entity: "fee_structure",
+        entity_id: record.id,
+        summary: `Created ${record.fee_type} structure for ${classDoc.name}`,
+        after: record.toObject(),
+      });
 
       res.json(stripMongoFields(record.toObject()));
     } catch (error: any) {
@@ -1373,8 +1726,79 @@ async function startServer() {
     if (!deleted) {
       return res.status(404).json({ error: "Fee Structure not found" });
     }
+    await writeAuditLog(req, {
+      action: "delete_fee_structure",
+      entity: "fee_structure",
+      entity_id: deleted.id,
+      summary: `Deleted ${deleted.fee_type} fee structure`,
+      before: deleted,
+    });
     res.json({ success: true });
   });
+
+  async function createPendingFeesFromStructure({
+    studentIds,
+    academicSession,
+    classId,
+    stream,
+  }: {
+    studentIds: number[];
+    academicSession: string;
+    classId: number;
+    stream: string;
+  }) {
+    const structures = await FeeStructure.find({
+      academic_session: academicSession,
+      class_id: classId,
+      stream,
+    }).lean();
+
+    if (structures.length === 0) {
+      return { createdCount: 0, structureCount: 0 };
+    }
+
+    const students = await Student.find({
+      id: { $in: studentIds },
+      status: "active",
+    }).lean();
+
+    let createdCount = 0;
+    const today = dateString();
+
+    for (const student of students) {
+      for (const structure of structures) {
+        const existing = await Fee.findOne({
+          student_id: student.id,
+          academic_session: academicSession,
+          class_id: classId,
+          type: structure.fee_type,
+        }).lean();
+
+        if (existing) {
+          continue;
+        }
+
+        const feeId = await getNextSequence("fees");
+        await Fee.create({
+          id: feeId,
+          student_id: student.id,
+          academic_session: academicSession,
+          class_id: classId,
+          amount: structure.amount,
+          type: structure.fee_type,
+          date: today,
+          status: "pending",
+          discount: 0,
+          mode: "System",
+          reference_no: "Auto-created after promotion",
+          bill_no: formatAppBillNo(feeId),
+        });
+        createdCount++;
+      }
+    }
+
+    return { createdCount, structureCount: structures.length };
+  }
 
   app.post("/api/admin/fees/apply-structure", authenticateToken, requireAdmin, async (req, res) => {
     try {
@@ -1424,13 +1848,19 @@ async function startServer() {
               type: struct.fee_type,
               date: dateString(),
               status: "pending",
-              bill_no: `SYS-${feeId}-${Date.now()}`,
+              bill_no: formatAppBillNo(feeId),
             });
             createdCount++;
           }
         }
       }
 
+      await writeAuditLog(req, {
+        action: "apply_fee_structure",
+        entity: "fee",
+        summary: `Applied fee structure and created ${createdCount} pending rows`,
+        after: { academic_session, class_id: classId, stream, created_count: createdCount },
+      });
       res.json({ success: true, count: createdCount });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -1439,15 +1869,94 @@ async function startServer() {
 
   // --- Promotion & Alumni ---
 
+  app.post("/api/admin/students/promote/preview", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const studentIds = Array.isArray(req.body.student_ids)
+        ? req.body.student_ids.map((id: unknown) => toNumber(id)).filter((id: number) => id > 0)
+        : [];
+      const targetClassId = toNumber(req.body.target_class_id);
+      const targetSession = String(req.body.target_session || "");
+
+      if (studentIds.length === 0 || !targetClassId || !targetSession) {
+        return res.status(400).json({ error: "Students, target class, and target session are required." });
+      }
+
+      const [students, classes] = await Promise.all([
+        Student.find({ id: { $in: studentIds } }).lean(),
+        ClassModel.find().lean(),
+      ]);
+      const classNameById = new Map(classes.map((item) => [Number(item.id), String(item.name || "")]));
+      const targetClassName = classNameById.get(targetClassId) || "";
+      const targetStream = getCollegeStreamLabel(targetClassName);
+      const structures = await FeeStructure.find({
+        academic_session: targetSession,
+        class_id: targetClassId,
+        stream: targetStream,
+      }).lean();
+      const fees = await Fee.find({ student_id: { $in: studentIds }, status: "pending" }).lean();
+
+      const rows = students.map((student) => {
+        const currentClassName = classNameById.get(Number(student.class_id)) || "";
+        const oldPending = fees
+          .filter((fee) =>
+            Number(fee.student_id) === Number(student.id) &&
+            isOlderAcademicBucket(
+              fee.academic_session,
+              classNameById.get(Number(fee.class_id)) || "",
+              targetSession,
+              targetClassName,
+            ),
+          )
+          .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+        const alreadyCreated = fees
+          .filter((fee) =>
+            Number(fee.student_id) === Number(student.id) &&
+            String(fee.academic_session || "") === targetSession &&
+            Number(fee.class_id) === targetClassId,
+          )
+          .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+        return {
+          student_id: student.id,
+          name: student.name,
+          reg_no: student.reg_no,
+          current_class: currentClassName,
+          target_class: targetClassName,
+          old_pending_amount: oldPending,
+          new_fee_amount: structures.reduce((sum, rule) => sum + Number(rule.amount || 0), 0),
+          already_created_amount: alreadyCreated,
+        };
+      });
+
+      res.json({
+        target_class: targetClassName,
+        target_session: targetSession,
+        stream: targetStream,
+        structure_count: structures.length,
+        fee_rules: structures.map((rule) => ({ fee_type: rule.fee_type, amount: rule.amount })),
+        students: rows,
+        totals: {
+          students: rows.length,
+          old_pending_amount: rows.reduce((sum, row) => sum + row.old_pending_amount, 0),
+          new_fee_amount: rows.reduce((sum, row) => sum + row.new_fee_amount, 0),
+          already_created_amount: rows.reduce((sum, row) => sum + row.already_created_amount, 0),
+        },
+        warning: structures.length === 0 ? "No fee structure is configured for this target year/session." : "",
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.post("/api/admin/students/promote", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const { student_ids, target_class_id, target_session, is_graduation } = req.body;
       if (!Array.isArray(student_ids) || student_ids.length === 0) {
         return res.status(400).json({ error: "No students provided" });
       }
+      const studentIds = student_ids.map((id) => toNumber(id)).filter((id) => id > 0);
 
-      const students = await Student.find({ id: { $in: student_ids } }).lean();
-      if (students.length !== student_ids.length) {
+      const students = await Student.find({ id: { $in: studentIds } }).lean();
+      if (students.length !== studentIds.length) {
         return res.status(404).json({ error: "One or more students could not be found" });
       }
 
@@ -1461,10 +1970,18 @@ async function startServer() {
         }
 
         await Student.updateMany(
-          { id: { $in: student_ids } },
+          { id: { $in: studentIds } },
           { $set: { status: "alumni" } }
         );
+        await writeAuditLog(req, {
+          action: "graduate_students",
+          entity: "student",
+          summary: `Graduated ${studentIds.length} students to alumni`,
+          before: students,
+          after: { student_ids: studentIds, status: "alumni" },
+        });
       } else {
+        const targetClassId = toNumber(target_class_id);
         const targetClassName = classNameById.get(toNumber(target_class_id)) || "";
         if (!targetClassName) {
           return res.status(400).json({ error: "Target class is required." });
@@ -1481,10 +1998,49 @@ async function startServer() {
           }
         }
 
+        const targetStream = getCollegeStreamLabel(targetClassName);
+        const targetGroup = targetStream;
         await Student.updateMany(
-          { id: { $in: student_ids } },
-          { $set: { class_id: toNumber(target_class_id), session: target_session } }
+          { id: { $in: studentIds } },
+          {
+            $set: {
+              class_id: targetClassId,
+              session: target_session,
+              stream: targetStream,
+              student_group: targetGroup,
+            },
+          }
         );
+
+        const feeApplyResult = await createPendingFeesFromStructure({
+          studentIds,
+          academicSession: String(target_session || ""),
+          classId: targetClassId,
+          stream: targetStream,
+        });
+        await writeAuditLog(req, {
+          action: "promote_students",
+          entity: "student",
+          summary: `Promoted ${studentIds.length} students to ${targetClassName}`,
+          before: students,
+          after: {
+            student_ids: studentIds,
+            target_class_id: targetClassId,
+            target_class: targetClassName,
+            target_session,
+            created_fee_count: feeApplyResult.createdCount,
+          },
+        });
+
+        return res.json({
+          success: true,
+          promoted_count: studentIds.length,
+          created_fee_count: feeApplyResult.createdCount,
+          fee_structure_count: feeApplyResult.structureCount,
+          warning: feeApplyResult.structureCount === 0
+            ? "Promotion completed, but no 2nd-year fee structure is configured for this batch/year."
+            : "",
+        });
       }
 
       res.json({ success: true });
@@ -1552,10 +2108,11 @@ async function startServer() {
       const date = dateString();
       for (const student of students) {
         for (const rule of rules) {
-           const existing = await Fee.findOne({ 
-             student_id: student.id, 
-             academic_session, 
-             type: rule.fee_type 
+           const existing = await Fee.findOne({
+             student_id: student.id,
+             academic_session,
+             class_id: numClassId,
+             type: rule.fee_type
            }).lean();
            
            if (!existing) {
@@ -1569,12 +2126,18 @@ async function startServer() {
                type: rule.fee_type,
                date,
                status: "pending",
-               bill_no: `BILL-${Date.now()}-${feeId}`,
+               bill_no: formatAppBillNo(feeId),
              });
              count++;
            }
         }
       }
+      await writeAuditLog(req, {
+        action: "apply_fee_structure",
+        entity: "fee",
+        summary: `Applied fee structure and created ${count} pending rows`,
+        after: { academic_session, class_id: numClassId, stream, created_count: count },
+      });
       res.json({ success: true, count });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -1598,11 +2161,19 @@ async function startServer() {
       FoodTransaction.deleteMany({ student_id: studentId }),
       HostelAllotment.deleteMany({ student_id: studentId }),
     ]);
+    await writeAuditLog(req, {
+      action: "delete_student",
+      entity: "student",
+      entity_id: student.id,
+      summary: `Deleted student ${student.reg_no}`,
+      before: student,
+    });
 
     res.json({ success: true });
   });
 
   app.post("/api/admin/fees/:id/cancel", authenticateToken, requireAdmin, async (req, res) => {
+    const beforeFee = await Fee.findOne({ id: toNumber(req.params.id) }).lean();
     const fee = await Fee.findOneAndUpdate(
       { id: toNumber(req.params.id) },
       { status: "cancelled" },
@@ -1622,6 +2193,14 @@ async function startServer() {
       category: "fee-cancel",
       date: dateString(),
       description: `Payment cancelled: ${fee.type}`,
+    });
+    await writeAuditLog(req, {
+      action: "cancel_fee",
+      entity: "fee",
+      entity_id: fee.id,
+      summary: `Cancelled ${fee.bill_no}`,
+      before: beforeFee,
+      after: fee,
     });
 
     res.json({ success: true });

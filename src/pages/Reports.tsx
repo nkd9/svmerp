@@ -149,7 +149,7 @@ export default function Reports() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div id="due-reports" className="scroll-mt-24 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-4">
             <div className="rounded-xl bg-rose-50 p-3 text-rose-600">
               <AlertCircle className="h-6 w-6" />
@@ -186,7 +186,7 @@ export default function Reports() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div id="collection-reports" className="scroll-mt-24 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-4">
             <div className="rounded-xl bg-emerald-50 p-3 text-emerald-600">
               <TrendingUp className="h-6 w-6" />
@@ -224,7 +224,7 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div id="pending-due-list" className="scroll-mt-24 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-100 p-6 md:flex-row md:items-center md:justify-between">
           <h3 className="font-bold text-slate-900">Pending Due List</h3>
           <div className="relative w-full md:w-64">

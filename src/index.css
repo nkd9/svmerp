@@ -128,6 +128,29 @@ body {
   backdrop-filter: blur(16px);
 }
 
+.svm-sidebar {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 90% 22%, rgba(255, 255, 255, 0.14), transparent 30%),
+    linear-gradient(180deg, var(--svm-bg-start) 0%, var(--svm-bg-mid) 48%, var(--svm-bg-end) 100%) !important;
+}
+
+.svm-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 82%);
+}
+
+.svm-sidebar > * {
+  position: relative;
+}
+
 /* Custom Scrollbar matching the theme */
 ::-webkit-scrollbar {
   width: 8px;

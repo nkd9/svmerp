@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw, WalletCards, GraduationCap, Archive, CalendarDays, BookOpen } from 'lucide-react';
+import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw, WalletCards, GraduationCap, Archive, CalendarDays, BookOpen, Download, ShieldCheck, Activity, ClipboardCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 type AdminUser = {
@@ -81,6 +81,15 @@ type FeeSetupDraft = {
   fooding_fee: number;
 };
 
+type AuditLog = {
+  id: number;
+  username: string;
+  action: string;
+  entity: string;
+  summary: string;
+  timestamp: string;
+};
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
@@ -111,6 +120,9 @@ export default function AdminSettings() {
   const [isFeeSetupModalOpen, setIsFeeSetupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [healthReport, setHealthReport] = useState<any | null>(null);
+  const [reconciliationRows, setReconciliationRows] = useState<any[]>([]);
 
   const [userForm, setUserForm] = useState({ name: '', username: '', password: '', role: 'staff' });
   const [classForm, setClassForm] = useState({ name: '', batches: '' });
@@ -153,6 +165,48 @@ export default function AdminSettings() {
     if (ledgersRes.ok) setLedgers(await ledgersRes.json());
     if (sessionsRes.ok) setSessions(await sessionsRes.json());
     if (streamsRes.ok) setStreams(await streamsRes.json());
+    fetchAuditLogs();
+  };
+
+  const fetchAuditLogs = async () => {
+    const res = await fetch('/api/admin/audit-logs?limit=20', { headers: authHeaders });
+    if (res.ok) setAuditLogs(await res.json());
+  };
+
+  const runHealthCheck = async () => {
+    const res = await fetch('/api/admin/data-health', { headers: authHeaders });
+    if (res.ok) {
+      setHealthReport(await res.json());
+      notify('Data health check completed');
+    } else {
+      notify('Unable to run data health check');
+    }
+  };
+
+  const runReconciliation = async () => {
+    const res = await fetch('/api/admin/fee-reconciliation', { headers: authHeaders });
+    if (res.ok) {
+      setReconciliationRows(await res.json());
+      notify('Fee reconciliation loaded');
+    } else {
+      notify('Unable to load fee reconciliation');
+    }
+  };
+
+  const exportBackup = async () => {
+    const res = await fetch('/api/admin/backup', { headers: authHeaders });
+    if (!res.ok) {
+      notify('Unable to export backup');
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `svm-erp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    fetchAuditLogs();
   };
 
   const createUser = async (e: FormEvent) => {
@@ -483,6 +537,103 @@ export default function AdminSettings() {
         Recommended production setup: keep only <span className="font-semibold">XI Arts, XII Arts, XI Science, XII Science, Passed Out</span> as classes and only <span className="font-semibold">Arts</span> and <span className="font-semibold">Science</span> as streams.
       </div>
 
+      <section id="production-tools" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="font-bold text-slate-900">Production Safety Tools</h2>
+            <p className="text-sm text-slate-500">Backup, data health, reconciliation, and audit tools for safer daily operation.</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-4">
+          <button onClick={exportBackup} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-left transition hover:bg-indigo-100">
+            <Download className="mb-3 h-5 w-5 text-indigo-700" />
+            <p className="font-bold text-slate-900">Export Backup</p>
+            <p className="mt-1 text-xs text-slate-500">Download students, fees, reports, and setup data.</p>
+          </button>
+          <button onClick={runHealthCheck} className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-left transition hover:bg-emerald-100">
+            <ClipboardCheck className="mb-3 h-5 w-5 text-emerald-700" />
+            <p className="font-bold text-slate-900">Data Health Check</p>
+            <p className="mt-1 text-xs text-slate-500">Find duplicates, missing classes, orphan fees, and broken URLs.</p>
+          </button>
+          <button onClick={runReconciliation} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:bg-amber-100">
+            <ReceiptIndianRupee className="mb-3 h-5 w-5 text-amber-700" />
+            <p className="font-bold text-slate-900">Fee Reconciliation</p>
+            <p className="mt-1 text-xs text-slate-500">Compare structure total, paid, pending, discount, and balance.</p>
+          </button>
+          <button onClick={fetchAuditLogs} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-slate-100">
+            <Activity className="mb-3 h-5 w-5 text-slate-700" />
+            <p className="font-bold text-slate-900">Refresh Audit Log</p>
+            <p className="mt-1 text-xs text-slate-500">Review recent admin actions and money changes.</p>
+          </button>
+        </div>
+
+        {healthReport && (
+          <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+            <h3 className="font-bold text-slate-900">Data Health Result</h3>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {healthReport.issues?.map((issue: any) => (
+                <div key={issue.label} className={`rounded-2xl p-3 ${issue.severity === 'ok' ? 'bg-emerald-50 text-emerald-800' : issue.severity === 'high' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
+                  <p className="text-xs font-bold uppercase tracking-wide">{issue.label}</p>
+                  <p className="mt-1 text-2xl font-black">{issue.count}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {reconciliationRows.length > 0 && (
+          <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
+            <div className="bg-slate-50 px-4 py-3">
+              <h3 className="font-bold text-slate-900">Fee Reconciliation Preview</h3>
+              <p className="text-xs text-slate-500">Showing first 25 students. Use this to quickly spot structure vs ledger gaps.</p>
+            </div>
+            <div className="max-h-96 overflow-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-white text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Student</th>
+                    <th className="px-4 py-3">Class</th>
+                    <th className="px-4 py-3">Structure</th>
+                    <th className="px-4 py-3">Paid</th>
+                    <th className="px-4 py-3">Pending</th>
+                    <th className="px-4 py-3">Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {reconciliationRows.slice(0, 25).map((row) => (
+                    <tr key={row.student_id}>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{row.name}<span className="ml-2 text-xs text-slate-500">{row.reg_no}</span></td>
+                      <td className="px-4 py-3 text-slate-600">{row.class_name}</td>
+                      <td className="px-4 py-3">{formatCurrency(Number(row.structure_total || 0))}</td>
+                      <td className="px-4 py-3">{formatCurrency(Number(row.paid || 0))}</td>
+                      <td className="px-4 py-3">{formatCurrency(Number(row.pending || 0))}</td>
+                      <td className="px-4 py-3 font-bold">{formatCurrency(Number(row.balance_by_structure || 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <h3 className="font-bold text-slate-900">Recent Audit Log</h3>
+          <div className="mt-3 space-y-2">
+            {auditLogs.length === 0 && <p className="text-sm text-slate-500">No audit log entries yet.</p>}
+            {auditLogs.map((log) => (
+              <div key={log.id} className="rounded-xl bg-white px-4 py-3 text-sm">
+                <p className="font-semibold text-slate-900">{log.summary || `${log.action} ${log.entity}`}</p>
+                <p className="text-xs text-slate-500">{log.username || 'system'} • {log.action} • {new Date(log.timestamp).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-6 md:grid-cols-3">
         <Link to="/fee-structures" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
           <div className="mb-4 inline-flex rounded-2xl bg-indigo-50 p-3 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
@@ -508,7 +659,7 @@ export default function AdminSettings() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <section id="create-users" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
               <UserPlus className="h-5 w-5" />
@@ -576,7 +727,7 @@ export default function AdminSettings() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <section id="class-master" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
               <Layers3 className="h-5 w-5" />
@@ -629,7 +780,7 @@ export default function AdminSettings() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <section id="fee-ledgers" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
               <ReceiptIndianRupee className="h-5 w-5" />
@@ -676,7 +827,7 @@ export default function AdminSettings() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <section id="session-master" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
               <CalendarDays className="h-5 w-5" />
@@ -717,7 +868,7 @@ export default function AdminSettings() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <section id="stream-master" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
               <BookOpen className="h-5 w-5" />
@@ -759,7 +910,7 @@ export default function AdminSettings() {
         </section>
       </div>
 
-      <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+      <section id="student-account-search" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">

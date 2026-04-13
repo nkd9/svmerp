@@ -625,7 +625,7 @@ export default function FeeReports() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="admission-due-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <AlertCircle className="h-5 w-5" />
             <div>
@@ -644,7 +644,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="student-fee-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <Search className="h-5 w-5" />
             <div>
@@ -699,7 +699,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="promoted-due-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <History className="h-5 w-5" />
             <div>
@@ -746,7 +746,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="daily-collection-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <CalendarDays className="h-5 w-5" />
             <div>
@@ -774,7 +774,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="old-due-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <History className="h-5 w-5" />
             <div>
@@ -819,7 +819,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="due-by-class-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <AlertCircle className="h-5 w-5" />
             <div>
@@ -851,7 +851,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+        <section id="transaction-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <ReceiptIndianRupee className="h-5 w-5" />
             <div>
@@ -916,7 +916,7 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden xl:col-span-2">
+        <section id="monthly-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden xl:col-span-2">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
             <FileText className="h-5 w-5" />
             <div>

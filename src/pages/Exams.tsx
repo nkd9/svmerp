@@ -732,7 +732,7 @@ export default function Exams() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div id="exams-list" className="scroll-mt-24 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="font-bold text-slate-900">Exams List</h3>
@@ -813,7 +813,7 @@ export default function Exams() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div id="student-marks-table" className="scroll-mt-24 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="font-bold text-slate-900">Student Marks Table</h3>
@@ -996,7 +996,7 @@ export default function Exams() {
 
 
 
-      <div className="space-y-6">
+      <div id="exam-reports" className="scroll-mt-24 space-y-6">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Exam Reports</h2>
           <p className="text-slate-500">Generate subject wise, exam wise and individual student reports.</p>

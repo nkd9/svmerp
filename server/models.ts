@@ -279,6 +279,24 @@ const streamSchema = new Schema(
   schemaOptions,
 );
 
+const auditLogSchema = new Schema(
+  {
+    id: { type: Number, required: true, unique: true, index: true },
+    user_id: { type: Number, default: 0 },
+    username: { type: String, default: "" },
+    role: { type: String, default: "" },
+    action: { type: String, required: true },
+    entity: { type: String, required: true },
+    entity_id: { type: String, default: "" },
+    summary: { type: String, default: "" },
+    before: { type: Schema.Types.Mixed, default: null },
+    after: { type: Schema.Types.Mixed, default: null },
+    date: { type: String, required: true },
+    timestamp: { type: String, required: true },
+  },
+  schemaOptions,
+);
+
 export const Counter: any = mongoose.models.Counter || mongoose.model("Counter", counterSchema);
 export const User: any = mongoose.models.User || mongoose.model("User", userSchema);
 export const ClassModel: any = mongoose.models.Class || mongoose.model("Class", classSchema);
@@ -304,6 +322,7 @@ export const AcademicSessionMaster: any =
   mongoose.models.AcademicSessionMaster || mongoose.model("AcademicSessionMaster", sessionSchema);
 export const StreamMaster: any =
   mongoose.models.StreamMaster || mongoose.model("StreamMaster", streamSchema);
+export const AuditLog: any = mongoose.models.AuditLog || mongoose.model("AuditLog", auditLogSchema);
 
 export async function getNextSequence(name: string) {
   const counter: any = await Counter.findOneAndUpdate(
