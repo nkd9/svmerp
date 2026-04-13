@@ -15,6 +15,11 @@ const formatReceiptDateTime = (date: string) => {
   }
 };
 
+const getFeeSortTime = (fee: any) => {
+  const parsed = new Date(fee.date || '').getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
 export default function Fees() {
   const { user } = useAuth();
   console.log("DEBUG: Current User Data ->", user);
@@ -41,7 +46,7 @@ export default function Fees() {
     discount: '0',
     mode: 'Cash',
     reference_no: '',
-    bill_no: `BILL-${Date.now()}`
+    bill_no: ''
   });
 
   useEffect(() => {
@@ -96,7 +101,7 @@ export default function Fees() {
         status: formData.status,
         mode: formData.mode,
         reference_no: formData.reference_no,
-        bill_no: formData.bill_no,
+        bill_no: createdFee.fee?.bill_no || formData.bill_no,
       };
 
       handlePrintReceipt(printableFee);
@@ -108,7 +113,7 @@ export default function Fees() {
         student_id: '', amount: '', type: ledgers[0]?.name || 'Admission Fee',
         date: format(new Date(), 'yyyy-MM-dd'), status: 'paid',
         discount: '0', mode: 'Cash', reference_no: '',
-        bill_no: `BILL-${Date.now()}`
+        bill_no: ''
       });
     } else {
       const errorData = await res.json();
@@ -151,16 +156,20 @@ export default function Fees() {
 
   const filteredFees = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return fees;
-    }
+    const rows = !query
+      ? fees
+      : fees.filter((fee) =>
+          String(fee.bill_no || '').toLowerCase().includes(query) ||
+          String(fee.student_name || '').toLowerCase().includes(query) ||
+          String(fee.type || '').toLowerCase().includes(query) ||
+          String(fee.status || '').toLowerCase().includes(query),
+        );
 
-    return fees.filter((fee) =>
-      String(fee.bill_no || '').toLowerCase().includes(query) ||
-      String(fee.student_name || '').toLowerCase().includes(query) ||
-      String(fee.type || '').toLowerCase().includes(query) ||
-      String(fee.status || '').toLowerCase().includes(query),
-    );
+    return [...rows].sort((a, b) => {
+      const dateDiff = getFeeSortTime(b) - getFeeSortTime(a);
+      if (dateDiff !== 0) return dateDiff;
+      return Number(b.id || 0) - Number(a.id || 0);
+    });
   }, [fees, searchQuery]);
 
   useEffect(() => {
@@ -466,7 +475,7 @@ export default function Fees() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div id="fee-summary" className="scroll-mt-24 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <p className="text-slate-500 text-sm font-medium">Collected This Month</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(totalCollected)}</p>
@@ -481,7 +490,7 @@ export default function Fees() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div id="fee-register" className="scroll-mt-24 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="relative w-64">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />

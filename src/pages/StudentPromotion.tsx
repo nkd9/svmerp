@@ -18,6 +18,8 @@ interface ClassModel {
 }
 
 const normalizeAcademicClassName = (value: string) => value.trim().toUpperCase().replace(/\s+/g, ' ');
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
 const getPromotableTargetClassName = (className?: string) => {
   const normalized = normalizeAcademicClassName(className || '');
@@ -37,6 +39,7 @@ export default function StudentPromotion() {
   const [targetClassId, setTargetClassId] = useState('');
   const [isGraduation, setIsGraduation] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<number[]>([]);
+  const [promotionPreview, setPromotionPreview] = useState<any | null>(null);
 
   const fetchInitialData = async () => {
     try {
@@ -92,16 +95,47 @@ export default function StudentPromotion() {
         })
       });
 
+      const data = await res.json();
+
       if (res.ok) {
-        alert('Action successful!');
+        if (!isGraduation) {
+          const feeMessage = data.warning
+            ? `\n\n${data.warning}`
+            : `\n\n${data.created_fee_count || 0} 2nd-year pending fee rows created.`;
+          alert(`Promotion successful!${feeMessage}`);
+        } else {
+          alert('Graduation successful!');
+        }
         setSelectedStudents([]);
         fetchInitialData();
       } else {
-        const data = await res.json();
         alert(data.error);
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handlePreview = async () => {
+    if (selectedStudents.length === 0) return alert('Select students to preview.');
+    if (isGraduation) return alert('Preview is only needed for promotion fee creation.');
+    if (!targetClassId) return alert('Please select a target class.');
+
+    const token = localStorage.getItem('token');
+    const res = await fetch('/api/admin/students/promote/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        student_ids: selectedStudents,
+        target_class_id: targetClassId,
+        target_session: targetSession,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setPromotionPreview(data);
+    } else {
+      alert(data.error || 'Unable to build promotion preview.');
     }
   };
 
@@ -173,15 +207,40 @@ export default function StudentPromotion() {
         <div className="border border-slate-100 rounded-xl overflow-hidden mt-6">
           <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
             <span className="font-semibold text-slate-700">Select Students ({selectedStudents.length} selected)</span>
-            <button
-              onClick={handlePromote}
-              disabled={selectedStudents.length === 0}
-              className={`px-6 py-2 rounded-lg font-bold text-white transition-colors flex items-center gap-2 ${selectedStudents.length > 0 ? (isGraduation ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700') : 'bg-slate-300 cursor-not-allowed'}`}
-            >
-              <GraduationCap size={18} />
-              {isGraduation ? 'Graduate to Alumni' : 'Promote Students'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {!isGraduation && (
+                <button
+                  onClick={handlePreview}
+                  disabled={selectedStudents.length === 0}
+                  className="rounded-lg border border-indigo-200 bg-white px-4 py-2 font-bold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Preview Fees
+                </button>
+              )}
+              <button
+                onClick={handlePromote}
+                disabled={selectedStudents.length === 0}
+                className={`px-6 py-2 rounded-lg font-bold text-white transition-colors flex items-center gap-2 ${selectedStudents.length > 0 ? (isGraduation ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700') : 'bg-slate-300 cursor-not-allowed'}`}
+              >
+                <GraduationCap size={18} />
+                {isGraduation ? 'Graduate to Alumni' : 'Promote Students'}
+              </button>
+            </div>
           </div>
+          {promotionPreview && !isGraduation && (
+            <div className="border-b border-indigo-100 bg-indigo-50 p-4 text-sm">
+              <div className="grid gap-3 md:grid-cols-4">
+                <div><span className="font-semibold">Students:</span> {promotionPreview.totals?.students || 0}</div>
+                <div><span className="font-semibold">New 2nd-year fees:</span> {formatCurrency(Number(promotionPreview.totals?.new_fee_amount || 0))}</div>
+                <div><span className="font-semibold">Old pending dues:</span> {formatCurrency(Number(promotionPreview.totals?.old_pending_amount || 0))}</div>
+                <div><span className="font-semibold">Fee rules:</span> {promotionPreview.structure_count || 0}</div>
+              </div>
+              {promotionPreview.warning && <p className="mt-2 font-semibold text-amber-700">{promotionPreview.warning}</p>}
+              <p className="mt-2 text-slate-600">
+                Promotion will create pending 2nd-year dues from the target fee structure and old due payment blocking will still apply.
+              </p>
+            </div>
+          )}
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50">
