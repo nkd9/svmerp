@@ -77,37 +77,39 @@ export default function Alumni() {
         </div>
 
         <div className="border border-slate-100 rounded-xl overflow-hidden mt-6">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name & Reg No</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Graduation Session</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Phone</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredAlumni.map(s => (
-                <tr key={s.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
-                  <td className="px-6 py-4 text-slate-700">{s.stream}</td>
-                  <td className="px-6 py-4 text-slate-700">{convertLegacySessionLabel(s.session)}</td>
-                  <td className="px-6 py-4 text-slate-700">{s.phone}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="text-indigo-600 hover:text-indigo-800 text-sm font-semibold">
-                      Account / Fees
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left whitespace-nowrap">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name & Reg No</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Graduation Session</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Phone</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                 </tr>
-              ))}
-              {filteredAlumni.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No alumni found.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAlumni.map(s => (
+                  <tr key={s.id} className="hover:bg-slate-50">
+                    <td className="px-6 py-4 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
+                    <td className="px-6 py-4 text-slate-700">{s.stream}</td>
+                    <td className="px-6 py-4 text-slate-700">{convertLegacySessionLabel(s.session)}</td>
+                    <td className="px-6 py-4 text-slate-700">{s.phone}</td>
+                    <td className="px-6 py-4 text-right">
+                      <button className="text-indigo-600 hover:text-indigo-800 text-sm font-semibold">
+                        Account / Fees
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredAlumni.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No alumni found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

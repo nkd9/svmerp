@@ -511,7 +511,7 @@ export default function Fees() {
           </Link>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left whitespace-nowrap">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                 <th className="px-6 py-4 font-semibold">Bill No</th>
@@ -958,7 +958,8 @@ export default function Fees() {
                     {profileStudentPendingFees.length === 0 ? (
                       <div className="px-5 py-8 text-sm text-slate-500">No pending dues for this student.</div>
                     ) : (
-                      <table className="w-full text-left text-sm">
+                      <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm whitespace-nowrap">
                         <thead className="bg-white text-xs uppercase tracking-wider text-slate-500">
                           <tr>
                             <th className="px-5 py-3 font-semibold">Ledger</th>
@@ -976,6 +977,7 @@ export default function Fees() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     )}
                   </div>
                 </section>
@@ -988,7 +990,8 @@ export default function Fees() {
                     {profileStudentPaidFees.length === 0 ? (
                       <div className="px-5 py-8 text-sm text-slate-500">No payments recorded yet.</div>
                     ) : (
-                      <table className="w-full text-left text-sm">
+                      <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm whitespace-nowrap">
                         <thead className="bg-white text-xs uppercase tracking-wider text-slate-500">
                           <tr>
                             <th className="px-5 py-3 font-semibold">Ledger</th>
@@ -1006,6 +1009,7 @@ export default function Fees() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     )}
                   </div>
                 </section>

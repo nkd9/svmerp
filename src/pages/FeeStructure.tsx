@@ -270,8 +270,9 @@ export default function FeeStructureSetup() {
         </div>
 
         <div className="md:col-span-2 border border-slate-200 bg-white overflow-hidden rounded-2xl shadow-sm">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-100">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left whitespace-nowrap">
+              <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500">Batch / Year</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500">Stream</th>
@@ -304,6 +305,7 @@ export default function FeeStructureSetup() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>

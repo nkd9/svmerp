@@ -288,7 +288,7 @@ export default function Reports() {
           )}
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-left">
+          <table className="w-full text-left whitespace-nowrap">
             <thead>
               <tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-6 py-4 font-semibold">Student</th>

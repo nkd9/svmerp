@@ -142,7 +142,7 @@ export default function Dashboard() {
           <p className="mt-1 text-sm text-slate-500">Latest receipts and fee updates recorded in the office.</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left whitespace-nowrap">
             <thead>
               <tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-6 py-4 font-semibold">Receipt / Txn</th>

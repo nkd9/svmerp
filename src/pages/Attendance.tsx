@@ -105,7 +105,7 @@ export default function Attendance() {
       {students.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="w-full text-left whitespace-nowrap">
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                   <th className="px-6 py-4 font-semibold">Student</th>
