@@ -98,8 +98,6 @@ export default function FeeReports() {
   const [activeReportTitle, setActiveReportTitle] = useState('');
   const [reportRows, setReportRows] = useState<ReportRow[]>([]);
   const [dailyCollectionDate, setDailyCollectionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [oldDueSession, setOldDueSession] = useState('');
-  const [oldDueClass, setOldDueClass] = useState('');
   const [studentReportSearch, setStudentReportSearch] = useState('');
   const [selectedStudentForReport, setSelectedStudentForReport] = useState('');
   const [selectedClassForDue, setSelectedClassForDue] = useState('');
@@ -277,93 +275,7 @@ export default function FeeReports() {
     openReport('Daily Collections Report', rows);
   };
 
-  const generateOldDueReport = () => {
-    const paidOldDueByStudent = feesWithStudent.reduce<Map<number, number>>((acc, fee) => {
-      if (fee.status !== 'paid' || String(fee.type || '') !== 'Old Due Collection') {
-        return acc;
-      }
 
-      const current = acc.get(Number(fee.student_id)) || 0;
-      acc.set(Number(fee.student_id), current + Number(fee.amount || 0));
-      return acc;
-    }, new Map<number, number>());
-
-    const grouped = new Map<
-      number,
-      {
-        bill_no: string;
-        reg_no: string;
-        student_name: string;
-        phone: string;
-        educational_years: Set<string>;
-        classes: Set<string>;
-        ledgers: Set<string>;
-        due_dates: Set<string>;
-        pending_amount: number;
-      }
-    >();
-
-    feesWithStudent
-      .filter(
-        (fee) =>
-          fee.status === 'pending' &&
-          OLD_DUE_LEDGER_TYPES.has(String(fee.type || '')) &&
-          (!oldDueSession || academicSessionsMatch(String(fee.academic_session || fee.student?.session || ''), oldDueSession)) &&
-          (!oldDueClass || String(classNameById.get(Number(fee.class_id)) || '') === oldDueClass),
-      )
-      .forEach((fee) => {
-        const studentId = Number(fee.student_id);
-        const current = grouped.get(studentId) || {
-          bill_no: fee.bill_no,
-          reg_no: fee.student?.reg_no || '',
-          student_name: fee.student_name,
-          phone: fee.student?.phone || '',
-          educational_years: new Set<string>(),
-          classes: new Set<string>(),
-          ledgers: new Set<string>(),
-          due_dates: new Set<string>(),
-          pending_amount: 0,
-        };
-
-        const feeClassName = String(classNameById.get(Number(fee.class_id)) || fee.student?.class_name || '');
-        const academicYear = convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || ''));
-
-        if (academicYear) current.educational_years.add(academicYear);
-        if (feeClassName) current.classes.add(feeClassName);
-        if (fee.type) current.ledgers.add(String(fee.type));
-        if (fee.date) current.due_dates.add(String(fee.date));
-        current.pending_amount += Number(fee.amount || 0);
-
-        grouped.set(studentId, current);
-      });
-
-    const rows = Array.from(grouped.entries()).map(([studentId, item]) => {
-      const paidAmount = paidOldDueByStudent.get(studentId) || 0;
-      return {
-        'Bill No': item.bill_no,
-        'Registration No': item.reg_no,
-        'Student Name': item.student_name,
-        'Phone Number': item.phone,
-        'Educational Year': Array.from(item.educational_years).join(', '),
-        Class: Array.from(item.classes).join(', '),
-        'Fee Ledger': Array.from(item.ledgers).join(', '),
-        'Due Date': Array.from(item.due_dates).sort().join(', '),
-        'Total Amount': paidAmount + item.pending_amount,
-        'Paid Amount': paidAmount,
-        'Pending Amount': item.pending_amount,
-      };
-    });
-
-    const titleParts = ['Old Due Report'];
-    if (oldDueSession) {
-      titleParts.push(oldDueSession);
-    }
-    if (oldDueClass) {
-      titleParts.push(oldDueClass);
-    }
-
-    openReport(titleParts.join(' - '), rows);
-  };
 
   const generateStudentReport = () => {
     const student = students.find((item) => String(item.id) === selectedStudentForReport);
@@ -774,50 +686,6 @@ export default function FeeReports() {
           </div>
         </section>
 
-        <section id="old-due-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">
-            <History className="h-5 w-5" />
-            <div>
-              <h2 className="text-lg font-bold">Old Due Report</h2>
-              <p className="text-sm text-indigo-100">Pending fees filtered educational year wise.</p>
-            </div>
-          </div>
-          <div className="space-y-4 p-6">
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Educational Year</label>
-              <select
-                value={oldDueSession}
-                onChange={(e) => setOldDueSession(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
-              >
-                <option value="">All Educational Years</option>
-                {sessionOptions.map((session) => (
-                  <option key={session} value={session}>{session}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Class</label>
-              <select
-                value={oldDueClass}
-                onChange={(e) => setOldDueClass(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-indigo-500"
-              >
-                <option value="">All Classes</option>
-                {classOptions.map((className) => (
-                  <option key={className} value={className}>{className}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={generateOldDueReport}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:-translate-y-0.5"
-            >
-              <Download className="h-4 w-4" />
-              Generate Old Due
-            </button>
-          </div>
-        </section>
 
         <section id="due-by-class-report" className="scroll-mt-24 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-4 text-white">

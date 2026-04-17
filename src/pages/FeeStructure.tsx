@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, Edit2, Check, X } from 'lucide-react';
 import { getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
 
 interface FeeStructure {
@@ -63,6 +63,8 @@ export default function FeeStructureSetup() {
   const [classes, setClasses] = useState<ClassModel[]>([]);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<number | string | null>(null);
+  const [editAmount, setEditAmount] = useState<string>('');
   const [form, setForm] = useState({
     academic_session: getCurrentAcademicSession(),
     class_id: '',
@@ -147,7 +149,7 @@ export default function FeeStructureSetup() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number | string) => {
     if (!confirm('Are you sure you want to delete this fee structure?')) return;
     try {
       const token = localStorage.getItem('token');
@@ -156,6 +158,27 @@ export default function FeeStructureSetup() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) fetchInitialData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleEditSubmit = async (id: number | string) => {
+    if (!editAmount) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/admin/fee-structures/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ amount: editAmount })
+      });
+      if (res.ok) {
+        setEditingId(null);
+        fetchInitialData();
+      } else {
+        const data = await res.json();
+        alert(data.error);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -269,41 +292,105 @@ export default function FeeStructureSetup() {
           </div>
         </div>
 
-        <div className="md:col-span-2 border border-slate-200 bg-white overflow-hidden rounded-2xl shadow-sm">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500">Batch / Year</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500">Stream</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500">Fee Ledger</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500">Amount</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {structures.map(struct => {
-                const cName = classes.find(c => c.id === struct.class_id)?.name || struct.class_id;
-                return (
-                  <tr key={struct.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 font-medium text-slate-900">{formatBatchClassLabel(struct.academic_session, String(cName))}</td>
-                    <td className="px-6 py-4 text-slate-700">{struct.stream}</td>
-                    <td className="px-6 py-4 text-slate-700">{struct.fee_type}</td>
-                    <td className="px-6 py-4 font-semibold text-emerald-600">Rs {struct.amount}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button onClick={() => handleDelete(struct.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg">
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {structures.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No fee structures configured yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="md:col-span-2 flex flex-col gap-6">
+          {(() => {
+            const groupedStructures = structures.reduce((acc, struct) => {
+              const key = `${struct.academic_session}_${struct.class_id}_${struct.stream}`;
+              if (!acc[key]) {
+                acc[key] = {
+                  academic_session: struct.academic_session,
+                  class_id: struct.class_id,
+                  stream: struct.stream,
+                  fees: []
+                };
+              }
+              acc[key].fees.push(struct);
+              return acc;
+            }, {} as Record<string, { academic_session: string; class_id: number; stream: string; fees: FeeStructure[] }>);
+
+            const groupKeys = Object.keys(groupedStructures);
+
+            if (groupKeys.length === 0) {
+              return (
+                <div className="border border-slate-200 bg-white p-8 rounded-2xl shadow-sm text-center text-slate-500 flex flex-col items-center justify-center min-h-[300px]">
+                  <p className="text-lg font-medium text-slate-900 mb-2">No Fee Rules Yet</p>
+                  <p className="text-sm">Use the form to configure fee ledgers for a batch and class.</p>
+                </div>
+              );
+            }
+
+            return groupKeys.map(key => {
+              const group = groupedStructures[key];
+              const cName = classes.find(c => c.id === group.class_id)?.name || group.class_id;
+              const totalAmount = group.fees.reduce((sum, f) => sum + Number(f.amount), 0);
+              
+              return (
+                <div key={key} className="border border-slate-200 bg-white rounded-2xl shadow-sm overflow-hidden transition-all hover:shadow-md">
+                  <div className="bg-slate-50 border-b border-slate-100 px-6 py-5 flex justify-between items-center">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">
+                        {formatBatchClassLabel(group.academic_session, String(cName))}
+                      </h3>
+                      <p className="text-sm text-slate-500 font-medium">{group.stream} Stream</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Total Bundle</span>
+                      <p className="text-xl font-bold tracking-tight text-indigo-600">Rs {totalAmount.toLocaleString('en-IN')}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="p-3">
+                    <ul className="divide-y divide-slate-100">
+                      {group.fees.map(fee => (
+                        <li key={fee.id} className="px-4 py-3 flex justify-between items-center hover:bg-slate-50 rounded-xl group/item transition-colors">
+                          <div className="font-medium text-slate-700 flex items-center gap-3">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
+                            {fee.fee_type}
+                          </div>
+                          <div className="flex items-center gap-4">
+                            {editingId === fee.id ? (
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="number" 
+                                  value={editAmount} 
+                                  onChange={(e) => setEditAmount(e.target.value)} 
+                                  className="w-24 px-2 py-1 text-sm font-semibold border-2 border-indigo-200 rounded focus:outline-none focus:border-indigo-500 bg-white"
+                                  autoFocus
+                                />
+                                <button onClick={() => handleEditSubmit(fee.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Save">
+                                  <Check size={18} />
+                                </button>
+                                <button onClick={() => setEditingId(null)} className="p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded transition-colors" title="Cancel">
+                                  <X size={18} />
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="font-semibold text-slate-900 w-24 text-right">Rs {Number(fee.amount).toLocaleString('en-IN')}</span>
+                                <div className="flex opacity-0 group-hover/item:opacity-100 transition-opacity gap-1">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingId(fee.id);
+                                      setEditAmount(String(fee.amount));
+                                    }} 
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all shadow-sm hover:shadow" title="Edit Ledger">
+                                    <Edit2 size={15} />
+                                  </button>
+                                  <button onClick={() => handleDelete(fee.id)} className="p-1.5 text-slate-400 hover:text-white hover:bg-rose-500 rounded-md transition-all shadow-sm hover:shadow" title="Delete Ledger">
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
     </div>

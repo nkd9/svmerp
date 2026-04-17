@@ -68,7 +68,7 @@ const sidebarItems: SidebarItem[] = [
       { name: 'Fee Reports Overview', path: '/fees/reports' },
       { name: 'Student Fee Report', path: '/fees/reports#student-fee-report' },
       { name: 'Admission Due Report', path: '/fees/reports#admission-due-report' },
-      { name: 'Old Due Report', path: '/fees/reports#old-due-report' },
+      { name: 'Old Due Report', path: '/old-due-report' },
       { name: 'Promoted Due Report', path: '/fees/reports#promoted-due-report' },
       { name: 'Due By Class Report', path: '/fees/reports#due-by-class-report' },
       { name: 'Daily Collection Report', path: '/fees/reports#daily-collection-report' },

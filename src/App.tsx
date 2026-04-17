@@ -18,6 +18,7 @@ import AdminSettings from './pages/AdminSettings';
 import FeeStructureSetup from './pages/FeeStructure';
 import StudentPromotion from './pages/StudentPromotion';
 import Alumni from './pages/Alumni';
+import OldDueReport from './pages/OldDueReport';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isReady } = useAuth();
@@ -139,6 +140,13 @@ export default function App() {
             <PrivateRoute>
               <Layout>
                 <Reports />
+              </Layout>
+            </PrivateRoute>
+          } />
+          <Route path="/old-due-report" element={
+            <PrivateRoute>
+              <Layout>
+                <OldDueReport />
               </Layout>
             </PrivateRoute>
           } />

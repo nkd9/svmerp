@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, IndianRupee, Download, ArrowRight, Printer } from 'lucide-react';
+import { Plus, Search, IndianRupee, Download, ArrowRight, Printer, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
@@ -203,6 +203,19 @@ export default function Fees() {
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     : [];
   const selectedPendingFee = selectedStudentPendingFees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
+  const blockingOldDue = selectedStudentPendingFees.find(fee => {
+    if (fee.type === 'Old Due Collection') return true;
+    if (!fee.student_id || !selectedStudent) return false;
+    
+    const feeSession = fee.academic_session;
+    const currentSession = selectedStudent.session;
+    const feeClassId = fee.class_id;
+    const currentClassId = selectedStudent.class_id;
+    
+    return (feeSession && currentSession && feeSession !== currentSession) || 
+           (feeClassId && currentClassId && Number(feeClassId) !== Number(currentClassId));
+  });
+  const blockingAdmissionFee = selectedStudentPendingFees.find(fee => String(fee.type || '').toLowerCase().includes('admission'));
   const matchingStudents = students.filter((student) => {
     if (!studentSearch.trim()) {
       return true;
@@ -269,13 +282,16 @@ export default function Fees() {
       : 0;
     const dueAmount = Math.max(totalFee - paidAmount, 0);
 
-    setSelectedPendingFeeId(firstPendingFee ? String(firstPendingFee.id) : '');
+    const pendingAdmission = pendingFeesForStudent.find(fee => String(fee.type || '').toLowerCase().includes('admission'));
+    const initialFee = pendingAdmission || firstPendingFee;
+    
+    setSelectedPendingFeeId(initialFee ? String(initialFee.id) : '');
     setFormData({
       ...formData,
       student_id: studentId,
       discount: '0',
-      amount: firstPendingFee ? String(firstPendingFee.amount || 0) : dueAmount ? String(dueAmount) : '',
-      type: firstPendingFee?.type || formData.type,
+      amount: initialFee ? String(initialFee.amount || 0) : dueAmount ? String(dueAmount) : '',
+      type: initialFee?.type || formData.type,
       reference_no: '',
     });
     setStudentSearch(student ? `${student.name} (${student.reg_no})` : '');
@@ -687,6 +703,37 @@ export default function Fees() {
                 </div>
               </div>
 
+              {blockingOldDue && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 text-rose-800">
+                    <AlertCircle className="h-5 w-5 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-sm">Action Required</h4>
+                      <p className="text-sm mt-0.5">This student has older dues. Please pay old dues before collecting current dues.</p>
+                    </div>
+                  </div>
+                  <Link 
+                    to="/old-due-report"
+                    onClick={() => setIsModalOpen(false)}
+                    className="shrink-0 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors text-center"
+                  >
+                    Go to Old Due Report
+                  </Link>
+                </div>
+              )}
+
+              {!blockingOldDue && blockingAdmissionFee && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                  <div className="flex items-center gap-3 text-amber-800">
+                    <AlertCircle className="h-5 w-5 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-sm">Admission Fee Pending</h4>
+                      <p className="text-sm mt-0.5">Student MUST pay their Admission fee before any other fees can be collected.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-700">Fee Ledger</label>
@@ -761,13 +808,17 @@ export default function Fees() {
                     value={selectedPendingFeeId}
                     onChange={(e) => handlePendingFeeChange(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    disabled={!selectedStudent || selectedStudentPendingFees.length === 0}
+                    disabled={blockingOldDue || !selectedStudent || selectedStudentPendingFees.length === 0 || (!blockingAdmissionFee && Boolean(blockingAdmissionFee))}
                   >
                     {selectedStudentPendingFees.length === 0 ? (
                       <option value="">No pending fee rows for this student</option>
                     ) : (
                       selectedStudentPendingFees.map((fee) => (
-                        <option key={fee.id} value={fee.id}>
+                        <option 
+                          key={fee.id} 
+                          value={fee.id}
+                          disabled={Boolean(blockingAdmissionFee) && fee.id !== blockingAdmissionFee?.id}
+                        >
                           {fee.type} - {formatCurrency(Number(fee.amount || 0))} - {fee.bill_no}
                         </option>
                       ))
@@ -792,9 +843,10 @@ export default function Fees() {
                       required
                       type="number"
                       min="0"
-                      className="w-full bg-slate-50 border-none rounded-xl py-2.5 pl-11 pr-4 text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full bg-slate-50 border-none rounded-xl py-2.5 pl-11 pr-4 text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                       value={formData.amount}
                       onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                      disabled={Boolean(blockingOldDue)}
                     />
                   </div>
                 </div>
@@ -834,7 +886,8 @@ export default function Fees() {
                 </div>
                 <button 
                   type="submit"
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-all hover:bg-indigo-700 shadow-lg shadow-indigo-200"
+                  disabled={Boolean(blockingOldDue) || !selectedStudent}
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-all hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Save and Print
                 </button>

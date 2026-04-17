@@ -1685,7 +1685,11 @@ async function startServer() {
 
   app.get("/api/admin/fee-structures", authenticateToken, requireAdmin, async (_req, res) => {
     const records = await FeeStructure.find().sort({ id: 1 }).lean();
-    res.json(records.map((item) => stripMongoFields(item)));
+    res.json(records.map((item) => {
+      const doc = stripMongoFields(item) as any;
+      if (!doc.id && item._id) doc.id = item._id.toString();
+      return doc;
+    }));
   });
 
   app.post("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
@@ -1721,19 +1725,53 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/admin/fee-structures/:id", authenticateToken, requireAdmin, async (req, res) => {
-    const deleted = await FeeStructure.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
-    if (!deleted) {
-      return res.status(404).json({ error: "Fee Structure not found" });
+  app.put("/api/admin/fee-structures/:id", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const qId = req.params.id;
+      const query = (qId && qId.length === 24) ? { _id: qId } : { id: toNumber(qId) };
+      
+      const before = await FeeStructure.findOne(query).lean();
+      if (!before) return res.status(404).json({ error: "Fee Structure not found" });
+
+      const updated = await FeeStructure.findOneAndUpdate(query, {
+        $set: { amount: toNumber(req.body.amount) }
+      }, { returnDocument: "after" }).lean();
+      
+      await writeAuditLog(req, {
+        action: "update_fee_structure",
+        entity: "fee_structure",
+        entity_id: updated.id || String(updated._id),
+        summary: `Updated ${updated.fee_type} amount to ${updated.amount}`,
+        before,
+        after: updated
+      });
+
+      res.json(stripMongoFields(updated as Record<string, unknown>));
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
-    await writeAuditLog(req, {
-      action: "delete_fee_structure",
-      entity: "fee_structure",
-      entity_id: deleted.id,
-      summary: `Deleted ${deleted.fee_type} fee structure`,
-      before: deleted,
-    });
-    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/fee-structures/:id", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const qId = req.params.id;
+      const query = (qId && qId.length === 24) ? { _id: qId } : { id: toNumber(qId) };
+      
+      const deleted = await FeeStructure.findOneAndDelete(query).lean();
+      if (!deleted) {
+        return res.status(404).json({ error: "Fee Structure not found" });
+      }
+      await writeAuditLog(req, {
+        action: "delete_fee_structure",
+        entity: "fee_structure",
+        entity_id: deleted.id,
+        summary: `Deleted ${deleted.fee_type} fee structure`,
+        before: deleted,
+      });
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   });
 
   async function createPendingFeesFromStructure({
@@ -2059,29 +2097,6 @@ async function startServer() {
     res.json(ledgers.map((item) => stripMongoFields(item)));
   });
 
-  app.get("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
-    const structures = await FeeStructure.find().sort({ id: 1 }).lean();
-    res.json(structures.map((item) => stripMongoFields(item)));
-  });
-
-  app.post("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
-    try {
-      const id = await getNextSequence("fee_structures");
-      const structure = await FeeStructure.create({
-        ...req.body,
-        id,
-      });
-      res.json(stripMongoFields(structure.toObject()));
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-  app.delete("/api/admin/fee-structures/:id", authenticateToken, requireAdmin, async (req, res) => {
-    const structure = await FeeStructure.findOneAndDelete({ id: toNumber(req.params.id) }).lean();
-    if (!structure) return res.status(404).json({ error: "Not found" });
-    res.json({ success: true });
-  });
 
   app.post("/api/admin/fees/apply-structure", authenticateToken, requireAdmin, async (req, res) => {
     try {
