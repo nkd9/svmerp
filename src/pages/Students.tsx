@@ -5,16 +5,17 @@ import {
   Edit2, 
   Eye, 
   Camera, 
-  Filter, 
+  Filter,
   Download, 
   UserPlus,
   ArrowLeft,
   Save,
-  Trash2,
+  IndianRupee,
   Printer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { printReport } from '../utils/print';
+import { useAuth } from '../context/AuthContext';
 import { academicSessionsMatch, convertLegacySessionLabel, getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
 import {
   Button,
@@ -231,6 +232,7 @@ async function optimizeStudentPhoto(file: File) {
 }
 
 export default function Students() {
+  const { user } = useAuth();
   const currentAcademicSession = getCurrentAcademicSession();
   const academicSessionOptions = getAcademicSessionOptions();
   const occupationOptions = [
@@ -320,6 +322,20 @@ export default function Students() {
   const [currentPage, setCurrentPage] = useState(1);
   const [failedImageKeys, setFailedImageKeys] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState<Partial<Student>>(emptyStudentForm());
+  const [isFeeSetupOpen, setIsFeeSetupOpen] = useState(false);
+  const [feeSetupStudent, setFeeSetupStudent] = useState<Student | null>(null);
+  const [feeSetupData, setFeeSetupData] = useState({
+    admission_fee: '',
+    coaching_fee: '',
+    transport: 'No',
+    transport_fee: '',
+    entrance: 'No',
+    entrance_fee: '',
+    fooding: 'No',
+    fooding_fee: '',
+    hostel_required: 'No',
+    hostel_fee: '',
+  });
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState('');
@@ -624,6 +640,57 @@ export default function Students() {
       student_group: derivedStream !== 'None' ? derivedStream : current.student_group,
       stream: derivedStream !== 'None' ? derivedStream : current.stream,
     }));
+  };
+
+  const openFeeSetupModal = (student: Student) => {
+    setFeeSetupStudent(student);
+    setFeeSetupData({
+      admission_fee: String(student.dynamic_fees?.dynamic_admission_fee ?? student.admission_fee ?? 0),
+      coaching_fee: String(student.dynamic_fees?.dynamic_coaching_fee ?? student.coaching_fee ?? 0),
+      transport: student.transport || 'No',
+      transport_fee: String(student.dynamic_fees?.dynamic_transport_fee ?? student.transport_fee ?? 0),
+      entrance: student.entrance || 'No',
+      entrance_fee: String(student.dynamic_fees?.dynamic_entrance_fee ?? student.entrance_fee ?? 0),
+      fooding: student.fooding || 'No',
+      fooding_fee: String(student.dynamic_fees?.dynamic_fooding_fee ?? student.fooding_fee ?? 0),
+      hostel_required: student.hostel_required || 'No',
+      hostel_fee: String(student.dynamic_fees?.dynamic_hostel_fee ?? student.hostel_fee ?? 0),
+    });
+    setIsFeeSetupOpen(true);
+  };
+
+  const handleFeeSetupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feeSetupStudent) return;
+
+    const token = localStorage.getItem('token');
+    const payload = {
+      ...feeSetupData,
+      transport_fee: feeSetupData.transport === 'Yes' ? feeSetupData.transport_fee : 0,
+      entrance_fee: feeSetupData.entrance === 'Yes' ? feeSetupData.entrance_fee : 0,
+      fooding_fee: feeSetupData.fooding === 'Yes' ? feeSetupData.fooding_fee : 0,
+      hostel_fee: feeSetupData.hostel_required === 'Yes' ? feeSetupData.hostel_fee : 0,
+    };
+
+    const res = await fetch(`/api/admin/students/${feeSetupStudent.id}/fee-setup`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      alert('Student fee setup updated successfully');
+      setIsFeeSetupOpen(false);
+      setFeeSetupStudent(null);
+      fetchData();
+      return;
+    }
+
+    const data = await res.json().catch(() => ({ error: 'Failed to update fee setup' }));
+    alert(data.error || 'Failed to update fee setup');
   };
 
   const generateReport = async () => {
@@ -1009,6 +1076,16 @@ export default function Students() {
                           >
                             <Eye size={18} />
                           </Button>
+                          {user?.role === 'admin' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openFeeSetupModal(student)}
+                              className="text-slate-500 hover:text-emerald-600 hover:bg-white hover:shadow-sm"
+                            >
+                              Fee Setup
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1929,6 +2006,140 @@ export default function Students() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {isFeeSetupOpen && feeSetupStudent && user?.role === 'admin' && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-2xl">
+            <div className="flex items-start justify-between bg-gradient-to-r from-[#4f6ef7] via-[#6777ea] to-[#7d5fd6] px-6 py-5 text-white">
+              <div>
+                <h3 className="text-xl font-bold">Student Fee Setup</h3>
+                <p className="text-sm text-indigo-100">
+                  {feeSetupStudent.name} • {feeSetupStudent.reg_no} • {feeSetupStudent.class_name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFeeSetupOpen(false)}
+                className="rounded-xl bg-white/15 px-3 py-2 text-sm font-semibold transition hover:bg-white/25"
+              >
+                Close
+              </button>
+            </div>
+
+            <form onSubmit={handleFeeSetupSubmit} className="max-h-[80vh] overflow-y-auto p-6">
+            
+
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-slate-700">Admission Fee</span>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="number"
+                      min="0"
+                      readOnly
+                      disabled
+                      value={feeSetupData.admission_fee}
+                      className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 py-2.5 pl-10 pr-4 text-slate-500 outline-none"
+                      title="Admission Fee is managed by Fee Structure Setup and cannot be changed student-wise."
+                    />
+                  </div>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-slate-700">Coaching Fee</span>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="number"
+                      min="0"
+                      readOnly
+                      disabled
+                      value={feeSetupData.coaching_fee}
+                      className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 py-2.5 pl-10 pr-4 text-slate-500 outline-none"
+                      title="Coaching Fee is managed by Fee Structure Setup and cannot be changed student-wise."
+                    />
+                  </div>
+                </label>
+
+                {[
+                  { flag: 'transport', amount: 'transport_fee', label: 'Transport' },
+                  { flag: 'entrance', amount: 'entrance_fee', label: 'Entrance' },
+                  { flag: 'fooding', amount: 'fooding_fee', label: 'Fooding' },
+                  { flag: 'hostel_required', amount: 'hostel_fee', label: 'Hostel', locked: true },
+                ].map((item) => {
+                  const enabled = feeSetupData[item.flag as keyof typeof feeSetupData] === 'Yes';
+                  const locked = Boolean(item.locked);
+                  return (
+                    <div key={item.flag} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-[140px_minmax(0,1fr)]">
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-700">{item.label}</span>
+                        <select
+                          value={feeSetupData[item.flag as keyof typeof feeSetupData]}
+                          disabled={locked}
+                          onChange={(e) =>
+                            setFeeSetupData((current) => ({
+                              ...current,
+                              [item.flag]: e.target.value,
+                              [item.amount]: e.target.value === 'Yes' ? current[item.amount as keyof typeof current] : '0',
+                            }))
+                          }
+                          className={`w-full rounded-xl border border-slate-200 px-4 py-2.5 outline-none transition ${
+                            locked
+                              ? 'cursor-not-allowed bg-slate-100 text-slate-500'
+                              : 'bg-white text-slate-700 focus:border-indigo-500'
+                          }`}
+                          title={locked ? `${item.label} is managed by Fee Structure Setup and cannot be changed student-wise.` : undefined}
+                        >
+                          <option value="No">No</option>
+                          <option value="Yes">Yes</option>
+                        </select>
+                      </label>
+
+                      <label className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-700">{item.label} Fee</span>
+                        <div className="relative">
+                          <IndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="number"
+                            min="0"
+                            readOnly={locked}
+                            disabled={!enabled || locked}
+                            value={feeSetupData[item.amount as keyof typeof feeSetupData]}
+                            onChange={(e) => setFeeSetupData((current) => ({ ...current, [item.amount]: e.target.value }))}
+                            className={`w-full rounded-xl border py-2.5 pl-10 pr-4 outline-none transition ${
+                              enabled && !locked
+                                ? 'border-slate-200 bg-white text-slate-700 focus:border-indigo-500'
+                                : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                            }`}
+                            title={locked ? `${item.label} Fee is managed by Fee Structure Setup and cannot be changed student-wise.` : undefined}
+                          />
+                        </div>
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-5">
+                <button
+                  type="button"
+                  onClick={() => setIsFeeSetupOpen(false)}
+                  className="rounded-xl px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700"
+                >
+                  Save Fee Setup
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

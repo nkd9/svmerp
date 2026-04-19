@@ -21,6 +21,7 @@ import {
 } from '../components/ui';
 
 const OLD_DUE_PAGE_SIZE = 20;
+const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -80,25 +81,37 @@ export default function OldDueReport() {
     [classes]
   );
 
-  const sessionOptions = useMemo(
-    () => (Array.from(new Set(students.map((student) => convertLegacySessionLabel(String(student.session || ''))).filter(Boolean))) as string[]).sort((a, b) => b.localeCompare(a)),
-    [students]
-  );
-
-  const classOptions = useMemo(
-    () => (Array.from(new Set(students.map((student) => String(student.class_name || '')).filter(Boolean))) as string[]).sort((a, b) => a.localeCompare(b)),
-    [students]
-  );
-
   const feesWithStudent = useMemo(() => fees.map((fee) => ({
     ...fee,
     student: students.find((student) => student.id === fee.student_id) || null,
   })), [fees, students]);
 
+  const isOldDueFee = (fee: any) => OLD_DUE_LEDGER_TYPES.has(String(fee.type || ''));
+
+  const sessionOptions = useMemo(
+    () => (Array.from(new Set(
+      feesWithStudent
+        .filter(isOldDueFee)
+        .map((fee) => convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || '')))
+        .filter(Boolean)
+    )) as string[]).sort((a, b) => b.localeCompare(a)),
+    [feesWithStudent]
+  );
+
+  const classOptions = useMemo(
+    () => (Array.from(new Set(
+      feesWithStudent
+        .filter(isOldDueFee)
+        .map((fee) => String(classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || fee.student?.class_name || ''))
+        .filter(Boolean)
+    )) as string[]).sort((a, b) => a.localeCompare(b)),
+    [classNameById, feesWithStudent]
+  );
+
   const filteredOldDues = useMemo(() => {
     let result = feesWithStudent.filter(fee => {
       if (fee.status !== 'pending') return false;
-      return String(fee.type || '').toLowerCase().includes('old due');
+      return isOldDueFee(fee);
     });
 
     if (oldDueSession) {

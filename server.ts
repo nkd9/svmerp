@@ -1975,6 +1975,8 @@ async function startServer() {
           entrance_fee: toNumber(req.body.entrance_fee),
           fooding: req.body.fooding === "Yes" ? "Yes" : "No",
           fooding_fee: toNumber(req.body.fooding_fee),
+          hostel_required: req.body.hostel_required === "Yes" ? "Yes" : "No",
+          hostel_fee: toNumber(req.body.hostel_fee),
         },
         { returnDocument: "after", runValidators: true },
       ).lean();
