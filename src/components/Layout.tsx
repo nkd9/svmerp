@@ -100,7 +100,8 @@ const sidebarItems: SidebarItem[] = [
     eyebrow: 'Setup',
     subItems: [
       { name: 'Admin Overview', path: '/admin-settings' },
-      { name: 'Production Tools', path: '/admin-settings#production-tools' },
+      // Production Tools hidden for now. Re-enable when backup/health/reconciliation UI is needed again.
+      // { name: 'Production Tools', path: '/admin-settings#production-tools' },
       { name: 'Create Users', path: '/admin-settings#create-users' },
       { name: 'Class Master', path: '/admin-settings#class-master' },
       { name: 'Fee Ledgers', path: '/admin-settings#fee-ledgers' },

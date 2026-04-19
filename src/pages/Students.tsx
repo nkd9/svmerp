@@ -2068,17 +2068,16 @@ export default function Students() {
                   { flag: 'transport', amount: 'transport_fee', label: 'Transport' },
                   { flag: 'entrance', amount: 'entrance_fee', label: 'Entrance' },
                   { flag: 'fooding', amount: 'fooding_fee', label: 'Fooding' },
-                  { flag: 'hostel_required', amount: 'hostel_fee', label: 'Hostel', locked: true },
+                  { flag: 'hostel_required', amount: 'hostel_fee', label: 'Hostel', amountLocked: true },
                 ].map((item) => {
                   const enabled = feeSetupData[item.flag as keyof typeof feeSetupData] === 'Yes';
-                  const locked = Boolean(item.locked);
+                  const amountLocked = Boolean(item.amountLocked);
                   return (
                     <div key={item.flag} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-[140px_minmax(0,1fr)]">
                       <label className="space-y-2">
                         <span className="text-sm font-semibold text-slate-700">{item.label}</span>
                         <select
                           value={feeSetupData[item.flag as keyof typeof feeSetupData]}
-                          disabled={locked}
                           onChange={(e) =>
                             setFeeSetupData((current) => ({
                               ...current,
@@ -2086,12 +2085,7 @@ export default function Students() {
                               [item.amount]: e.target.value === 'Yes' ? current[item.amount as keyof typeof current] : '0',
                             }))
                           }
-                          className={`w-full rounded-xl border border-slate-200 px-4 py-2.5 outline-none transition ${
-                            locked
-                              ? 'cursor-not-allowed bg-slate-100 text-slate-500'
-                              : 'bg-white text-slate-700 focus:border-indigo-500'
-                          }`}
-                          title={locked ? `${item.label} is managed by Fee Structure Setup and cannot be changed student-wise.` : undefined}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-slate-700 outline-none transition focus:border-indigo-500"
                         >
                           <option value="No">No</option>
                           <option value="Yes">Yes</option>
@@ -2105,16 +2099,16 @@ export default function Students() {
                           <input
                             type="number"
                             min="0"
-                            readOnly={locked}
-                            disabled={!enabled || locked}
+                            readOnly={amountLocked}
+                            disabled={!enabled || amountLocked}
                             value={feeSetupData[item.amount as keyof typeof feeSetupData]}
                             onChange={(e) => setFeeSetupData((current) => ({ ...current, [item.amount]: e.target.value }))}
                             className={`w-full rounded-xl border py-2.5 pl-10 pr-4 outline-none transition ${
-                              enabled && !locked
+                              enabled && !amountLocked
                                 ? 'border-slate-200 bg-white text-slate-700 focus:border-indigo-500'
                                 : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                             }`}
-                            title={locked ? `${item.label} Fee is managed by Fee Structure Setup and cannot be changed student-wise.` : undefined}
+                            title={amountLocked ? `${item.label} Fee is managed by Fee Structure Setup and cannot be changed student-wise.` : undefined}
                           />
                         </div>
                       </label>

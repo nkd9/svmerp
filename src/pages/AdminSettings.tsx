@@ -82,6 +82,8 @@ type FeeSetupDraft = {
   fooding_fee: number;
 };
 
+const SHOW_PRODUCTION_SAFETY_TOOLS = false;
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
@@ -521,84 +523,87 @@ export default function AdminSettings() {
         Recommended production setup: keep only <span className="font-semibold">XI Arts, XII Arts, XI Science, XII Science, Passed Out</span> as classes and only <span className="font-semibold">Arts</span> and <span className="font-semibold">Science</span> as streams.
       </div>
 
-      <section id="production-tools" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="font-bold text-slate-900">Production Safety Tools</h2>
-            <p className="text-sm text-slate-500">Backup, data health, and reconciliation tools for safer daily operation.</p>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          <button onClick={exportBackup} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-left transition hover:bg-indigo-100">
-            <Download className="mb-3 h-5 w-5 text-indigo-700" />
-            <p className="font-bold text-slate-900">Export Backup</p>
-            <p className="mt-1 text-xs text-slate-500">Download students, fees, reports, and setup data.</p>
-          </button>
-          <button onClick={runHealthCheck} className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-left transition hover:bg-emerald-100">
-            <ClipboardCheck className="mb-3 h-5 w-5 text-emerald-700" />
-            <p className="font-bold text-slate-900">Data Health Check</p>
-            <p className="mt-1 text-xs text-slate-500">Find duplicates, missing classes, orphan fees, and broken URLs.</p>
-          </button>
-          <button onClick={runReconciliation} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:bg-amber-100">
-            <ReceiptIndianRupee className="mb-3 h-5 w-5 text-amber-700" />
-            <p className="font-bold text-slate-900">Fee Reconciliation</p>
-            <p className="mt-1 text-xs text-slate-500">Compare structure total, paid, pending, discount, and balance.</p>
-          </button>
-        </div>
-
-        {healthReport && (
-          <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-            <h3 className="font-bold text-slate-900">Data Health Result</h3>
-            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {healthReport.issues?.map((issue: any) => (
-                <div key={issue.label} className={`rounded-2xl p-3 ${issue.severity === 'ok' ? 'bg-emerald-50 text-emerald-800' : issue.severity === 'high' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
-                  <p className="text-xs font-bold uppercase tracking-wide">{issue.label}</p>
-                  <p className="mt-1 text-2xl font-black">{issue.count}</p>
-                </div>
-              ))}
+      {/* Production Safety Tools disabled for now. Keep this block available for later re-enable. */}
+      {SHOW_PRODUCTION_SAFETY_TOOLS && (
+        <section id="production-tools" className="scroll-mt-24 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900">Production Safety Tools</h2>
+              <p className="text-sm text-slate-500">Backup, data health, and reconciliation tools for safer daily operation.</p>
             </div>
           </div>
-        )}
 
-        {reconciliationRows.length > 0 && (
-          <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
-            <div className="bg-slate-50 px-4 py-3">
-              <h3 className="font-bold text-slate-900">Fee Reconciliation Preview</h3>
-              <p className="text-xs text-slate-500">Showing first 25 students. Use this to quickly spot structure vs ledger gaps.</p>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <button onClick={exportBackup} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-left transition hover:bg-indigo-100">
+              <Download className="mb-3 h-5 w-5 text-indigo-700" />
+              <p className="font-bold text-slate-900">Export Backup</p>
+              <p className="mt-1 text-xs text-slate-500">Download students, fees, reports, and setup data.</p>
+            </button>
+            <button onClick={runHealthCheck} className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-left transition hover:bg-emerald-100">
+              <ClipboardCheck className="mb-3 h-5 w-5 text-emerald-700" />
+              <p className="font-bold text-slate-900">Data Health Check</p>
+              <p className="mt-1 text-xs text-slate-500">Find duplicates, missing classes, orphan fees, and broken URLs.</p>
+            </button>
+            <button onClick={runReconciliation} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:bg-amber-100">
+              <ReceiptIndianRupee className="mb-3 h-5 w-5 text-amber-700" />
+              <p className="font-bold text-slate-900">Fee Reconciliation</p>
+              <p className="mt-1 text-xs text-slate-500">Compare structure total, paid, pending, discount, and balance.</p>
+            </button>
+          </div>
+
+          {healthReport && (
+            <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <h3 className="font-bold text-slate-900">Data Health Result</h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {healthReport.issues?.map((issue: any) => (
+                  <div key={issue.label} className={`rounded-2xl p-3 ${issue.severity === 'ok' ? 'bg-emerald-50 text-emerald-800' : issue.severity === 'high' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
+                    <p className="text-xs font-bold uppercase tracking-wide">{issue.label}</p>
+                    <p className="mt-1 text-2xl font-black">{issue.count}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="max-h-96 overflow-auto">
-              <Table className="text-sm">
-                <TableHead className="bg-white">
-                  <TableRow className="hover:bg-transparent">
-                    <TableHeaderCell className="px-4 py-3">Student</TableHeaderCell>
-                    <TableHeaderCell className="px-4 py-3">Class</TableHeaderCell>
-                    <TableHeaderCell className="px-4 py-3">Structure</TableHeaderCell>
-                    <TableHeaderCell className="px-4 py-3">Paid</TableHeaderCell>
-                    <TableHeaderCell className="px-4 py-3">Pending</TableHeaderCell>
-                    <TableHeaderCell className="px-4 py-3">Balance</TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody className="bg-white">
-                  {reconciliationRows.slice(0, 25).map((row) => (
-                    <TableRow key={row.student_id}>
-                      <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.name}<span className="ml-2 text-xs text-slate-500">{row.reg_no}</span></TableCell>
-                      <TableCell className="px-4 py-3">{row.class_name}</TableCell>
-                      <TableCell className="px-4 py-3">{formatCurrency(Number(row.structure_total || 0))}</TableCell>
-                      <TableCell className="px-4 py-3">{formatCurrency(Number(row.paid || 0))}</TableCell>
-                      <TableCell className="px-4 py-3">{formatCurrency(Number(row.pending || 0))}</TableCell>
-                      <TableCell className="px-4 py-3 font-bold">{formatCurrency(Number(row.balance_by_structure || 0))}</TableCell>
+          )}
+
+          {reconciliationRows.length > 0 && (
+            <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
+              <div className="bg-slate-50 px-4 py-3">
+                <h3 className="font-bold text-slate-900">Fee Reconciliation Preview</h3>
+                <p className="text-xs text-slate-500">Showing first 25 students. Use this to quickly spot structure vs ledger gaps.</p>
+              </div>
+              <div className="max-h-96 overflow-auto">
+                <Table className="text-sm">
+                  <TableHead className="bg-white">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHeaderCell className="px-4 py-3">Student</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Class</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Structure</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Paid</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Pending</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Balance</TableHeaderCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHead>
+                  <TableBody className="bg-white">
+                    {reconciliationRows.slice(0, 25).map((row) => (
+                      <TableRow key={row.student_id}>
+                        <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.name}<span className="ml-2 text-xs text-slate-500">{row.reg_no}</span></TableCell>
+                        <TableCell className="px-4 py-3">{row.class_name}</TableCell>
+                        <TableCell className="px-4 py-3">{formatCurrency(Number(row.structure_total || 0))}</TableCell>
+                        <TableCell className="px-4 py-3">{formatCurrency(Number(row.paid || 0))}</TableCell>
+                        <TableCell className="px-4 py-3">{formatCurrency(Number(row.pending || 0))}</TableCell>
+                        <TableCell className="px-4 py-3 font-bold">{formatCurrency(Number(row.balance_by_structure || 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      )}
 
       <div className="grid gap-6 md:grid-cols-3">
         <Link to="/fee-structures" className="group rounded-3xl border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md">
