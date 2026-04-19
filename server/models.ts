@@ -66,6 +66,7 @@ const studentSchema = new Schema(
     roll_no: { type: String, default: "" },
     rfid_card_no: { type: String, default: "" },
     hostel_required: { type: String, default: "No" },
+    hostel_fee: { type: Number, default: 0 },
     student_aadhaar_no: { type: String, default: "" },
     mother_aadhaar_no: { type: String, default: "" },
     father_aadhaar_no: { type: String, default: "" },

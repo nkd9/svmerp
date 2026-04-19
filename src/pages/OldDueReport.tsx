@@ -3,6 +3,23 @@ import { Search, IndianRupee, Download, Printer, AlertCircle, Plus } from 'lucid
 import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
+import {
+  Button,
+  EmptyTableRow,
+  Input,
+  Pagination,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableToolbar,
+} from '../components/ui';
+
+const OLD_DUE_PAGE_SIZE = 20;
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -24,10 +41,11 @@ export default function OldDueReport() {
   const [oldDueSession, setOldDueSession] = useState('');
   const [oldDueClass, setOldDueClass] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<any | null>(null);
-  const [editFormData, setEditFormData] = useState({ amount: '' });
+  const [editFormData, setEditFormData] = useState({ amount: '', admin_password: '' });
 
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payingFee, setPayingFee] = useState<any | null>(null);
@@ -78,7 +96,7 @@ export default function OldDueReport() {
   const filteredOldDues = useMemo(() => {
     let result = feesWithStudent.filter(fee => {
       if (fee.status !== 'pending') return false;
-      if (fee.type === 'Old Due Collection') return true;
+      if (String(fee.type || '').toLowerCase().includes('old due')) return true;
 
       const student = fee.student;
       if (!student) return false;
@@ -114,11 +132,24 @@ export default function OldDueReport() {
 
     return result.sort((a, b) => (a.student?.name || '').localeCompare(b.student?.name || ''));
   }, [feesWithStudent, oldDueSession, oldDueClass, searchQuery, classNameById]);
+  const totalPages = Math.ceil(filteredOldDues.length / OLD_DUE_PAGE_SIZE);
+  const paginatedOldDues = useMemo(() => {
+    const start = (currentPage - 1) * OLD_DUE_PAGE_SIZE;
+    return filteredOldDues.slice(start, start + OLD_DUE_PAGE_SIZE);
+  }, [filteredOldDues, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [oldDueSession, oldDueClass, searchQuery]);
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (user?.role !== 'admin' || !editingFee) {
       alert('Only admin can modify financial information.');
+      return;
+    }
+    if (!editFormData.admin_password) {
+      alert('Admin password is required.');
       return;
     }
     
@@ -128,7 +159,7 @@ export default function OldDueReport() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify({ amount: editFormData.amount })
+      body: JSON.stringify({ amount: editFormData.amount, admin_password: editFormData.admin_password })
     });
     
     if (res.ok) {
@@ -190,7 +221,7 @@ export default function OldDueReport() {
 
   const openEditModal = (fee: any) => {
     setEditingFee(fee);
-    setEditFormData({ amount: String(fee.amount) });
+    setEditFormData({ amount: String(fee.amount), admin_password: '' });
     setIsEditModalOpen(true);
   };
 
@@ -370,114 +401,122 @@ export default function OldDueReport() {
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-b border-slate-100 bg-slate-50/50">
+      <TableContainer>
+        <TableToolbar className="grid grid-cols-1 md:grid-cols-3">
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Educational Year</label>
-            <select
+            <Select
               value={oldDueSession}
               onChange={(e) => setOldDueSession(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 focus:border-indigo-500 outline-none"
+              className="bg-white"
             >
               <option value="">All Educational Years</option>
               {sessionOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Class</label>
-            <select
+            <Select
               value={oldDueClass}
               onChange={(e) => setOldDueClass(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 focus:border-indigo-500 outline-none"
+              className="bg-white"
             >
               <option value="">All Classes</option>
               {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Search</label>
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
+              <Input
                 type="text"
                 placeholder="Search by student, reg no, or bill no..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-indigo-500 outline-none"
+                leftIcon={<Search className="h-4 w-4" />}
+                className="bg-white"
               />
-            </div>
           </div>
-        </div>
+        </TableToolbar>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left whitespace-nowrap">
-            <thead>
-              <tr className="bg-slate-50/80 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">Bill No</th>
-                <th className="px-6 py-4 font-semibold">Student</th>
-                <th className="px-6 py-4 font-semibold">Class / Session</th>
-                <th className="px-6 py-4 font-semibold">Fee Ledger</th>
-                <th className="px-6 py-4 font-semibold">Amount</th>
-                <th className="px-6 py-4 font-semibold">Due Date</th>
+          <Table className="whitespace-nowrap">
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell>Bill No</TableHeaderCell>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Class / Session</TableHeaderCell>
+                <TableHeaderCell>Fee Ledger</TableHeaderCell>
+                <TableHeaderCell>Amount</TableHeaderCell>
+                <TableHeaderCell>Due Date</TableHeaderCell>
                 {user?.role === 'admin' && (
-                  <th className="px-6 py-4 font-semibold text-center">Actions</th>
+                  <TableHeaderCell className="text-center">Actions</TableHeaderCell>
                 )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredOldDues.map((fee) => {
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginatedOldDues.map((fee) => {
                 const studentClass = classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || '';
                 const session = convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || ''));
                 
                 return (
-                  <tr key={fee.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-mono text-slate-500">{fee.bill_no}</td>
-                    <td className="px-6 py-4 text-sm">
+                  <TableRow key={fee.id}>
+                    <TableCell className="font-mono">{fee.bill_no}</TableCell>
+                    <TableCell>
                       <div className="font-semibold text-slate-900">{fee.student?.name}</div>
                       <div className="text-xs text-slate-500">{fee.student?.reg_no}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
+                    </TableCell>
+                    <TableCell>
                       <div>{studentClass}</div>
                       <div className="text-xs text-slate-500">{session}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm font-medium text-slate-700 bg-indigo-50/30">
+                    </TableCell>
+                    <TableCell className="bg-indigo-50/30 font-medium text-slate-700">
                       {fee.type}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-bold text-rose-600">{formatCurrency(Number(fee.amount))}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{fee.date}</td>
+                    </TableCell>
+                    <TableCell className="font-bold text-rose-600">{formatCurrency(Number(fee.amount))}</TableCell>
+                    <TableCell>{fee.date}</TableCell>
                     {user?.role === 'admin' && (
-                      <td className="px-6 py-4 text-center space-x-2">
-                        <button
+                      <TableCell className="space-x-2 text-center">
+                        <Button
                           onClick={() => openEditModal(fee)}
-                          className="px-3 py-1.5 hover:bg-slate-100 hover:shadow-sm rounded-lg text-emerald-600 transition-all font-medium text-xs border border-emerald-100 bg-emerald-50"
+                          variant="outline"
+                          size="sm"
+                          className="border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                         >
                           Edit
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           onClick={() => openPayModal(fee)}
-                          className="px-3 py-1.5 hover:bg-indigo-100 hover:shadow-sm rounded-lg text-indigo-700 transition-all font-medium text-xs border border-indigo-200 bg-indigo-50"
+                          variant="outline"
+                          size="sm"
+                          className="border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
                         >
                           Pay
-                        </button>
-                      </td>
+                        </Button>
+                      </TableCell>
                     )}
-                  </tr>
+                  </TableRow>
                 );
               })}
               {filteredOldDues.length === 0 && (
-                <tr>
-                  <td colSpan={user?.role === 'admin' ? 7 : 6} className="px-6 py-10 text-center">
+                <EmptyTableRow colSpan={user?.role === 'admin' ? 7 : 6}>
                     <div className="flex flex-col items-center justify-center text-slate-500">
                       <AlertCircle className="w-8 h-8 mb-2 opacity-50" />
                       <p className="text-sm">No pending old dues match your query.</p>
                     </div>
-                  </td>
-                </tr>
+                </EmptyTableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      </div>
+        <Pagination
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredOldDues.length}
+          pageSize={OLD_DUE_PAGE_SIZE}
+          itemName="old dues"
+          onPageChange={setCurrentPage}
+        />
+      </TableContainer>
 
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
@@ -503,9 +542,20 @@ export default function OldDueReport() {
                     min="0"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     value={editFormData.amount}
-                    onChange={(e) => setEditFormData({ amount: e.target.value })}
+                    onChange={(e) => setEditFormData((current) => ({ ...current, amount: e.target.value }))}
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Admin Password</label>
+                <input
+                  required
+                  type="password"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  value={editFormData.admin_password}
+                  onChange={(e) => setEditFormData((current) => ({ ...current, admin_password: e.target.value }))}
+                  placeholder="Confirm admin password"
+                />
               </div>
               <div className="pt-2">
                 <button

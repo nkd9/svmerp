@@ -17,12 +17,7 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from './ui';
 
 type SubItem = { name: string; path: string; adminOnly?: boolean };
 type SidebarItem = {
@@ -32,6 +27,16 @@ type SidebarItem = {
   adminOnly?: boolean;
   eyebrow?: string;
   subItems?: SubItem[];
+};
+
+const parseSidebarPath = (path: string) => {
+  const [pathAndSearch, hash = ''] = path.split('#');
+  const [pathname, search = ''] = pathAndSearch.split('?');
+  return {
+    pathname,
+    search: search ? `?${search}` : '',
+    hash: hash ? `#${hash}` : '',
+  };
 };
 
 const sidebarItems: SidebarItem[] = [
@@ -63,7 +68,7 @@ const sidebarItems: SidebarItem[] = [
     icon: CreditCard,
     eyebrow: 'Accounts',
     subItems: [
-      { name: 'Fee Collection', path: '/fees' },
+      { name: 'Fee Collection', path: '/fees?action=collect' },
       { name: 'Fee Register', path: '/fees#fee-register' },
       { name: 'Fee Reports Overview', path: '/fees/reports' },
       { name: 'Student Fee Report', path: '/fees/reports#student-fee-report' },
@@ -120,7 +125,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const activeItem = visibleSidebarItems.find((item) =>
-      item.subItems?.some((subItem) => location.pathname === subItem.path),
+      item.subItems?.some((subItem) => location.pathname === parseSidebarPath(subItem.path).pathname),
     );
 
     if (activeItem) {
@@ -151,10 +156,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     navigate('/login');
   };
 
-  const getPathname = (path: string) => path.split('#')[0];
-  const isSubItemActive = (subItem: SubItem) =>
-    location.pathname === getPathname(subItem.path) &&
-    (!subItem.path.includes('#') || location.hash === `#${subItem.path.split('#')[1]}`);
+  const isSubItemActive = (subItem: SubItem) => {
+    const parsed = parseSidebarPath(subItem.path);
+    return (
+      location.pathname === parsed.pathname &&
+      (!parsed.search || location.search === parsed.search) &&
+      (!parsed.hash ? !location.hash : location.hash === parsed.hash)
+    );
+  };
   const isItemActive = (item: SidebarItem, visibleSubItems: SubItem[]) =>
     item.path ? location.pathname === item.path : visibleSubItems.some(isSubItemActive);
 
@@ -301,7 +310,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       >
                         <div className="ml-7 mt-2 space-y-1 border-l border-white/12 py-1 pl-5">
                           {visibleSubItems.map(subItem => {
-                            const isSubActive = location.pathname === subItem.path;
+                            const isSubActive = isSubItemActive(subItem);
                             return (
                               <Link
                                 key={subItem.name}

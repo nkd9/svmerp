@@ -2,6 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { Users, IndianRupee, AlertCircle, Home, ArrowRight, GraduationCap, ReceiptIndianRupee, FileBarChart2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import {
+  Card,
+  EmptyTableRow,
+  StatCard,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '../components/ui';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -65,20 +77,19 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
         {overviewCards.map((card) => (
-          <div key={card.name} className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+          <StatCard key={card.name} label={card.name} value={card.value}>
             <div className="flex items-center justify-between">
               <div className={`${card.color} rounded-2xl p-3 text-white`}>
                 <card.icon className="h-6 w-6" />
               </div>
             </div>
-            <p className="mt-4 text-sm font-medium text-slate-500">{card.name}</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">{card.value}</p>
-          </div>
+            <div className="mt-4" />
+          </StatCard>
         ))}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
               <ReceiptIndianRupee className="h-5 w-5" />
@@ -96,9 +107,9 @@ export default function Dashboard() {
             Open fee desk
             <ArrowRight className="h-4 w-4" />
           </Link>
-        </div>
+        </Card>
 
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
               <Users className="h-5 w-5" />
@@ -116,9 +127,9 @@ export default function Dashboard() {
             Open admissions
             <ArrowRight className="h-4 w-4" />
           </Link>
-        </div>
+        </Card>
 
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+        <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-amber-50 p-3 text-amber-600">
               <FileBarChart2 className="h-5 w-5" />
@@ -133,51 +144,47 @@ export default function Dashboard() {
             <Link to="/student-promotion" className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">Promote 1st year students</Link>
             <Link to="/alumni" className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">View alumni records</Link>
           </div>
-        </div>
+        </Card>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <TableContainer>
         <div className="border-b border-slate-100 p-6">
           <h3 className="font-bold text-slate-900">Recent Financial Activity</h3>
           <p className="mt-1 text-sm text-slate-500">Latest receipts and fee updates recorded in the office.</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-6 py-4 font-semibold">Receipt / Txn</th>
-                <th className="px-6 py-4 font-semibold">Student</th>
-                <th className="px-6 py-4 font-semibold">Phone</th>
-                <th className="px-6 py-4 font-semibold">Class</th>
-                <th className="px-6 py-4 font-semibold">Entry</th>
-                <th className="px-6 py-4 font-semibold">Amount</th>
-                <th className="px-6 py-4 font-semibold">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+          <Table>
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell>Receipt / Txn</TableHeaderCell>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Phone</TableHeaderCell>
+                <TableHeaderCell>Class</TableHeaderCell>
+                <TableHeaderCell>Entry</TableHeaderCell>
+                <TableHeaderCell>Amount</TableHeaderCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {(stats.recentTransactions || []).length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
-                    No recent financial activity found.
-                  </td>
-                </tr>
+                <EmptyTableRow colSpan={7}>No recent financial activity found.</EmptyTableRow>
               ) : (
                 stats.recentTransactions.map((tx: any) => (
-                  <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-semibold text-slate-900">TX-{tx.id}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-slate-900">{tx.student_name}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{tx.phone || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{tx.class_name || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{tx.fee_type || tx.description || '-'}</td>
-                    <td className="px-6 py-4 text-sm font-bold text-emerald-600">{formatCurrency(Number(tx.amount || 0))}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{tx.date ? format(new Date(tx.date), 'dd MMM yyyy') : '-'}</td>
-                  </tr>
+                  <TableRow key={tx.id}>
+                    <TableCell className="font-semibold text-slate-900">TX-{tx.id}</TableCell>
+                    <TableCell className="font-medium text-slate-900">{tx.student_name}</TableCell>
+                    <TableCell>{tx.phone || '-'}</TableCell>
+                    <TableCell>{tx.class_name || '-'}</TableCell>
+                    <TableCell>{tx.fee_type || tx.description || '-'}</TableCell>
+                    <TableCell className="font-bold text-emerald-600">{formatCurrency(Number(tx.amount || 0))}</TableCell>
+                    <TableCell>{tx.date ? format(new Date(tx.date), 'dd MMM yyyy') : '-'}</TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      </div>
+      </TableContainer>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
         Current working model: <span className="font-semibold text-slate-900">XI Arts, XII Arts, XI Science, XII Science</span>. Promotions move from first year to second year within the same stream, and passed-out second-year students move to alumni.

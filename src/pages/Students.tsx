@@ -16,6 +16,22 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { printReport } from '../utils/print';
 import { academicSessionsMatch, convertLegacySessionLabel, getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
+import {
+  Button,
+  EmptyTableRow,
+  Input,
+  PageHeader,
+  Pagination,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableToolbar,
+} from '../components/ui';
 
 interface Student {
   id: number;
@@ -75,12 +91,31 @@ interface Student {
   entrance_fee: number;
   fooding: string;
   fooding_fee: number;
+  hostel_fee: number;
+  dynamic_fees?: {
+    dynamic_admission_fee?: number;
+    dynamic_coaching_fee?: number;
+    dynamic_transport_fee?: number;
+    dynamic_entrance_fee?: number;
+    dynamic_fooding_fee?: number;
+    dynamic_hostel_fee?: number;
+  };
   status: string;
 }
 
 interface Class {
   id: number;
   name: string;
+}
+
+type FeeCategory = 'admission' | 'coaching' | 'transport' | 'entrance' | 'fooding' | 'hostel' | 'other';
+
+interface FeeStructure {
+  academic_session: string;
+  class_id: number | string;
+  stream: string;
+  fee_type: string;
+  amount: number | string;
 }
 
 interface CloudinarySignatureResponse {
@@ -122,6 +157,17 @@ const deriveStreamFromClassName = (className?: string) => {
   if (normalized.includes('ARTS')) return 'Arts';
   if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'Science';
   return 'None';
+};
+
+const getFeeCategory = (value?: string): FeeCategory => {
+  const type = String(value || '').toLowerCase();
+  if (type.includes('admission')) return 'admission';
+  if (type.includes('coaching') || type.includes('tuition')) return 'coaching';
+  if (type.includes('transport')) return 'transport';
+  if (type.includes('entrance')) return 'entrance';
+  if (type.includes('food')) return 'fooding';
+  if (type.includes('hostel')) return 'hostel';
+  return 'other';
 };
 
 const isAcademicCollegeClass = (className?: string) => {
@@ -256,6 +302,7 @@ export default function Students() {
     entrance_fee: 0,
     fooding: 'No',
     fooding_fee: 0,
+    hostel_fee: 0,
     status: 'active'
   });
 
@@ -263,6 +310,7 @@ export default function Students() {
   const [classes, setClasses] = useState<Class[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [streams, setStreams] = useState<any[]>([]);
+  const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'form' | 'profile' | 'reports'>('list');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -277,6 +325,43 @@ export default function Students() {
   const [photoUploadError, setPhotoUploadError] = useState('');
   const selectedClass = classes.find((item) => item.id === Number(formData.class_id));
   const derivedAcademicStream = deriveStreamFromClassName(selectedClass?.name);
+
+  const liveFeeSetup = React.useMemo(() => {
+    const currentStream = derivedAcademicStream !== 'None' ? derivedAcademicStream : formData.stream;
+    const rows = (feeStructures || []).filter((structure) =>
+      structure.academic_session === formData.session &&
+      String(structure.class_id) === String(formData.class_id) &&
+      String(structure.stream || 'None') === String(currentStream || 'None')
+    );
+
+    const amounts: Record<FeeCategory, number> = {
+      admission: 0,
+      coaching: 0,
+      transport: 0,
+      entrance: 0,
+      fooding: 0,
+      hostel: 0,
+      other: 0,
+    };
+    const structuredCategories = new Set<FeeCategory>();
+
+    rows.forEach((structure) => {
+      const category = getFeeCategory(structure.fee_type);
+      structuredCategories.add(category);
+      amounts[category] += Number(structure.amount || 0);
+    });
+
+    return { amounts, structuredCategories };
+  }, [formData.session, formData.class_id, formData.stream, feeStructures, derivedAcademicStream]);
+
+  const feeFieldValue = (category: FeeCategory, fallback: keyof Student, enabled = true) => {
+    if (!enabled) return 0;
+    return liveFeeSetup.structuredCategories.has(category)
+      ? liveFeeSetup.amounts[category]
+      : Number(formData[fallback] || 0);
+  };
+
+  const isFeeFieldStructured = (category: FeeCategory) => liveFeeSetup.structuredCategories.has(category);
   const admissionClassOptions = classes.filter(
     (item) => isAcademicCollegeClass(item.name) || item.id === Number(formData.class_id),
   );
@@ -380,22 +465,26 @@ export default function Students() {
     setCurrentPage(1);
   }, [searchTerm, selectedListClassId, selectedListSession, students]);
 
+
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('token');
-      const [studentsRes, classesRes, sessionsRes, streamsRes] = await Promise.all([
+      const [studentsRes, classesRes, sessionsRes, streamsRes, feeStructuresRes] = await Promise.all([
         fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/sessions', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/streams', { headers: { 'Authorization': `Bearer ${token}` } })
+        fetch('/api/streams', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/fee-structures', { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => ({ ok: false, json: async () => [] } as any))
       ]);
       
       if (studentsRes.ok && classesRes.ok) {
-        setStudents(await studentsRes.json());
+        const data = await studentsRes.json();
+        setStudents(data);
         setClasses(await classesRes.json());
       }
       if (sessionsRes.ok) setSessions(await sessionsRes.json());
       if (streamsRes.ok) setStreams(await streamsRes.json());
+      if (feeStructuresRes.ok) setFeeStructures(await feeStructuresRes.json());
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -484,6 +573,15 @@ export default function Students() {
       const token = localStorage.getItem('token');
       const url = selectedStudent ? `/api/students/${selectedStudent.id}` : '/api/students';
       const method = selectedStudent ? 'PUT' : 'POST';
+      const payload = {
+        ...formData,
+        coaching_fee: feeFieldValue('coaching', 'coaching_fee'),
+        admission_fee: feeFieldValue('admission', 'admission_fee'),
+        transport_fee: feeFieldValue('transport', 'transport_fee', formData.transport === 'Yes'),
+        entrance_fee: feeFieldValue('entrance', 'entrance_fee', formData.entrance === 'Yes'),
+        fooding_fee: feeFieldValue('fooding', 'fooding_fee', formData.fooding === 'Yes'),
+        hostel_fee: feeFieldValue('hostel', 'hostel_fee', formData.hostel_required === 'Yes'),
+      };
       
       const res = await fetch(url, {
         method,
@@ -491,7 +589,7 @@ export default function Students() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
@@ -753,20 +851,19 @@ export default function Students() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Student Admission</h1>
-          <p className="text-slate-500">Manage student registrations and profiles</p>
-        </div>
-        <div className="flex gap-3">
-          <button 
+      <PageHeader
+        title="Student Admission"
+        description="Manage student registrations and profiles"
+        actions={
+          <>
+          <Button
+            variant="outline"
             onClick={() => setView('reports')}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
           >
             <Download size={18} />
             Reports
-          </button>
-          <button 
+          </Button>
+          <Button
             onClick={() => {
               setSelectedStudent(null);
               const preferredClassId = admissionClassOptions[0]?.id || classes[0]?.id || 0;
@@ -787,187 +884,174 @@ export default function Students() {
               });
               setView('form');
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
           >
             <UserPlus size={18} />
             New Admission
-          </button>
-        </div>
-      </div>
+          </Button>
+          </>
+        }
+      />
 
       {view === 'list' && (
         <div className="space-y-4">
-          <div className="flex flex-col gap-4 mb-6 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-              <input 
-                type="text"
-                placeholder="Search by name, registration number or phone..."
-                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="w-full md:w-64">
-              <select
-                value={selectedListSession}
-                onChange={(e) => setSelectedListSession(e.target.value)}
-                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-              >
-                {academicSessionOptions.map((session) => (
-                  <option key={session} value={session}>
-                    {session}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="w-full md:w-64">
-              <select
-                value={selectedListClassId}
-                onChange={(e) => setSelectedListClassId(e.target.value)}
-                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-              >
-                <option value="">All Classes</option>
-                {listClassOptions.map((classItem) => (
-                  <option key={classItem.id} value={classItem.id}>
-                    {classItem.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          <TableContainer>
+            <TableToolbar className="flex-col items-stretch">
+              <div className="flex flex-col gap-4 md:flex-row">
+                <div className="flex-1">
+                  <Input
+                    type="text"
+                    placeholder="Search by name, registration number or phone..."
+                    className="bg-white"
+                    leftIcon={<Search size={20} />}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                <div className="w-full md:w-64">
+                  <Select
+                    value={selectedListSession}
+                    onChange={(e) => setSelectedListSession(e.target.value)}
+                    className="bg-white"
+                  >
+                    {academicSessionOptions.map((session) => (
+                      <option key={session} value={session}>
+                        {session}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="w-full md:w-64">
+                  <Select
+                    value={selectedListClassId}
+                    onChange={(e) => setSelectedListClassId(e.target.value)}
+                    className="bg-white"
+                  >
+                    <option value="">All Classes</option>
+                    {listClassOptions.map((classItem) => (
+                      <option key={classItem.id} value={classItem.id}>
+                        {classItem.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 rounded-lg border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
+                <div>
+                  Showing academic session <span className="font-semibold text-slate-900">{selectedListSession}</span>
+                </div>
+                <div>
+                  {filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'} found
+                </div>
+              </div>
+            </TableToolbar>
 
-          <div className="flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
-            <div>
-              Showing academic session <span className="font-semibold text-slate-900">{selectedListSession}</span>
-            </div>
-            <div>
-              {filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'} found
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Reg No</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Class</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {paginatedStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center overflow-hidden border border-indigo-100">
-                          {student.photo_url && !failedImageKeys[`list-${student.id}`] ? (
-                            <img
-                              src={student.photo_url}
-                              alt={student.name}
-                              className="w-full h-full object-cover"
-                              onError={() => markImageAsFailed(`list-${student.id}`)}
-                            />
-                          ) : (
-                            <span className="text-indigo-600 font-bold">{student.name[0]}</span>
-                          )}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHead>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHeaderCell>Student</TableHeaderCell>
+                    <TableHeaderCell>Reg No</TableHeaderCell>
+                    <TableHeaderCell>Class</TableHeaderCell>
+                    <TableHeaderCell>Stream</TableHeaderCell>
+                    <TableHeaderCell>Category</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paginatedStudents.map((student) => (
+                    <TableRow key={student.id} className="group">
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center overflow-hidden border border-indigo-100">
+                            {student.photo_url && !failedImageKeys[`list-${student.id}`] ? (
+                              <img
+                                src={student.photo_url}
+                                alt={student.name}
+                                className="w-full h-full object-cover"
+                                onError={() => markImageAsFailed(`list-${student.id}`)}
+                              />
+                            ) : (
+                              <span className="text-indigo-600 font-bold">{student.name[0]}</span>
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-slate-900">{student.name}</div>
+                            <div className="text-xs text-slate-500">{student.phone}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-semibold text-slate-900">{student.name}</div>
-                          <div className="text-xs text-slate-500">{student.phone}</div>
+                      </TableCell>
+                      <TableCell className="font-medium">{student.reg_no}</TableCell>
+                      <TableCell>
+                        <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-medium">
+                          {student.class_name}
+                        </span>
+                      </TableCell>
+                      <TableCell>{student.stream}</TableCell>
+                      <TableCell>{student.category}</TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded-full ${
+                          student.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                        }`}>
+                          {student.status}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedStudent(student);
+                              setView('profile');
+                            }}
+                            className="text-slate-400 hover:text-indigo-600 hover:bg-white hover:shadow-sm"
+                          >
+                            <Eye size={18} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedStudent(student);
+                              setPhotoUploadError('');
+                              setPhotoPreviewUrl((currentPreview) => {
+                                if (currentPreview) {
+                                  URL.revokeObjectURL(currentPreview);
+                                }
+
+                                return null;
+                              });
+                              setFormData({
+                                ...student,
+                                student_group: deriveStreamFromClassName(student.class_name) !== 'None' ? deriveStreamFromClassName(student.class_name) : student.student_group,
+                                stream: deriveStreamFromClassName(student.class_name) !== 'None' ? deriveStreamFromClassName(student.class_name) : student.stream,
+                              });
+                              setView('form');
+                            }}
+                            className="text-slate-400 hover:text-indigo-600 hover:bg-white hover:shadow-sm"
+                          >
+                            <Edit2 size={18} />
+                          </Button>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600 font-medium">{student.reg_no}</td>
-                    <td className="px-6 py-4">
-                      <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-medium">
-                        {student.class_name}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{student.stream}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{student.category}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded-full ${
-                        student.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                      }`}>
-                        {student.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex gap-2 justify-end">
-                        <button 
-                          onClick={() => {
-                            setSelectedStudent(student);
-                            setView('profile');
-                          }}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white hover:shadow-sm rounded-lg transition-all"
-                        >
-                          <Eye size={18} />
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setSelectedStudent(student);
-                            setPhotoUploadError('');
-                            setPhotoPreviewUrl((currentPreview) => {
-                              if (currentPreview) {
-                                URL.revokeObjectURL(currentPreview);
-                              }
-
-                              return null;
-                            });
-                            setFormData({
-                              ...student,
-                              student_group: deriveStreamFromClassName(student.class_name) !== 'None' ? deriveStreamFromClassName(student.class_name) : student.student_group,
-                              stream: deriveStreamFromClassName(student.class_name) !== 'None' ? deriveStreamFromClassName(student.class_name) : student.stream,
-                            });
-                            setView('form');
-                          }}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white hover:shadow-sm rounded-lg transition-all"
-                        >
-                          <Edit2 size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {paginatedStudents.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                      No students found for the selected academic session and class.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="text-sm text-slate-500">
-              Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {paginatedStudents.length === 0 && (
+                    <EmptyTableRow colSpan={7}>No students found for the selected academic session and class.</EmptyTableRow>
+                  )}
+                </TableBody>
+              </Table>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                disabled={currentPage === 1}
-                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                disabled={currentPage >= totalPages}
-                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
+            <Pagination
+              page={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredStudents.length}
+              pageSize={STUDENT_LIST_PAGE_SIZE}
+              itemName="students"
+              onPageChange={setCurrentPage}
+            />
+          </TableContainer>
         </div>
       )}
 
@@ -1192,13 +1276,6 @@ export default function Students() {
                     </select>
                     <p className="text-xs text-slate-500">Stream follows the selected class automatically.</p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Hostel</label>
-                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.hostel_required} onChange={(e) => setFormData({ ...formData, hostel_required: e.target.value })}>
-                      <option value="No">No</option>
-                      <option value="Yes">Yes</option>
-                    </select>
-                  </div>
                 </div>
               </section>
 
@@ -1283,11 +1360,27 @@ export default function Students() {
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Coaching Fee (Rs)</label>
-                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.dynamic_fees?.dynamic_coaching_fee ?? formData.coaching_fee} title="Managed dynamically via Fee Structures" />
+                    <input
+                      type="number"
+                      readOnly={isFeeFieldStructured('coaching')}
+                      disabled={isFeeFieldStructured('coaching')}
+                      className={`w-full px-4 py-2.5 outline-none transition-all ${isFeeFieldStructured('coaching') ? 'bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl cursor-not-allowed' : 'bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900'}`}
+                      value={feeFieldValue('coaching', 'coaching_fee')}
+                      onChange={(e) => setFormData({ ...formData, coaching_fee: Number(e.target.value) })}
+                      title={isFeeFieldStructured('coaching') ? 'Managed by Fee Structure Setup' : 'Custom coaching fee for this student'}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Admission Fee (Rs)</label>
-                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.dynamic_fees?.dynamic_admission_fee ?? formData.admission_fee} title="Managed dynamically via Fee Structures" />
+                    <input
+                      type="number"
+                      readOnly={isFeeFieldStructured('admission')}
+                      disabled={isFeeFieldStructured('admission')}
+                      className={`w-full px-4 py-2.5 outline-none transition-all ${isFeeFieldStructured('admission') ? 'bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl cursor-not-allowed' : 'bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900'}`}
+                      value={feeFieldValue('admission', 'admission_fee')}
+                      onChange={(e) => setFormData({ ...formData, admission_fee: Number(e.target.value) })}
+                      title={isFeeFieldStructured('admission') ? 'Managed by Fee Structure Setup' : 'Custom admission fee for this student'}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Transport</label>
@@ -1298,7 +1391,15 @@ export default function Students() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Transport Fee (Rs)</label>
-                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.transport === 'Yes' ? (formData.dynamic_fees?.dynamic_transport_fee ?? formData.transport_fee) : 0} title="Managed dynamically via Fee Structures" />
+                    <input 
+                      type="number" 
+                      readOnly={formData.transport === 'No' || isFeeFieldStructured('transport')} 
+                      disabled={formData.transport === 'No' || isFeeFieldStructured('transport')} 
+                      className={`w-full px-4 py-2.5 outline-none transition-all ${formData.transport === 'Yes' && !isFeeFieldStructured('transport') ? 'bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900' : 'bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl cursor-not-allowed'}`}
+                      value={feeFieldValue('transport', 'transport_fee', formData.transport === 'Yes')} 
+                      onChange={(e) => setFormData({ ...formData, transport_fee: Number(e.target.value) })}
+                      title={formData.transport === 'No' ? 'Enable Transport to edit' : isFeeFieldStructured('transport') ? 'Managed by Fee Structure Setup' : 'Custom transport fee for this student'} 
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Entrance</label>
@@ -1309,7 +1410,15 @@ export default function Students() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Entrance Fee (Rs)</label>
-                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.entrance === 'Yes' ? (formData.dynamic_fees?.dynamic_entrance_fee ?? formData.entrance_fee) : 0} title="Managed dynamically via Fee Structures" />
+                    <input
+                      type="number"
+                      readOnly={formData.entrance === 'No' || isFeeFieldStructured('entrance')}
+                      disabled={formData.entrance === 'No' || isFeeFieldStructured('entrance')}
+                      className={`w-full px-4 py-2.5 outline-none transition-all ${formData.entrance === 'Yes' && !isFeeFieldStructured('entrance') ? 'bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900' : 'bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl cursor-not-allowed'}`}
+                      value={feeFieldValue('entrance', 'entrance_fee', formData.entrance === 'Yes')}
+                      onChange={(e) => setFormData({ ...formData, entrance_fee: Number(e.target.value) })}
+                      title={formData.entrance === 'No' ? 'Enable Entrance to edit' : isFeeFieldStructured('entrance') ? 'Managed by Fee Structure Setup' : 'Custom entrance fee for this student'}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Fooding</label>
@@ -1320,7 +1429,34 @@ export default function Students() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Fooding Fee (Rs)</label>
-                    <input type="number" readOnly disabled className="w-full px-4 py-2.5 bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl outline-none cursor-not-allowed" value={formData.fooding === 'Yes' ? (formData.dynamic_fees?.dynamic_fooding_fee ?? formData.fooding_fee) : 0} title="Managed dynamically via Fee Structures" />
+                    <input
+                      type="number"
+                      readOnly={formData.fooding === 'No' || isFeeFieldStructured('fooding')}
+                      disabled={formData.fooding === 'No' || isFeeFieldStructured('fooding')}
+                      className={`w-full px-4 py-2.5 outline-none transition-all ${formData.fooding === 'Yes' && !isFeeFieldStructured('fooding') ? 'bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900' : 'bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl cursor-not-allowed'}`}
+                      value={feeFieldValue('fooding', 'fooding_fee', formData.fooding === 'Yes')}
+                      onChange={(e) => setFormData({ ...formData, fooding_fee: Number(e.target.value) })}
+                      title={formData.fooding === 'No' ? 'Enable Fooding to edit' : isFeeFieldStructured('fooding') ? 'Managed by Fee Structure Setup' : 'Custom fooding fee for this student'}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Hostel</label>
+                    <select className="w-full px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" value={formData.hostel_required} onChange={(e) => setFormData({ ...formData, hostel_required: e.target.value })}>
+                      <option value="No">No</option>
+                      <option value="Yes">Yes</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Hostel Fee (Rs)</label>
+                    <input
+                      type="number"
+                      readOnly={formData.hostel_required === 'No' || isFeeFieldStructured('hostel')}
+                      disabled={formData.hostel_required === 'No' || isFeeFieldStructured('hostel')}
+                      className={`w-full px-4 py-2.5 outline-none transition-all ${formData.hostel_required === 'Yes' && !isFeeFieldStructured('hostel') ? 'bg-white border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900' : 'bg-slate-100/50 text-slate-500 border border-slate-200 rounded-xl cursor-not-allowed'}`}
+                      value={feeFieldValue('hostel', 'hostel_fee', formData.hostel_required === 'Yes')}
+                      onChange={(e) => setFormData({ ...formData, hostel_fee: Number(e.target.value) })}
+                      title={formData.hostel_required === 'No' ? 'Enable Hostel to edit' : isFeeFieldStructured('hostel') ? 'Managed by Fee Structure Setup' : 'Custom hostel fee for this student'}
+                    />
                   </div>
                 </div>
               </section>
@@ -1462,7 +1598,7 @@ export default function Students() {
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Group</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.student_group)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Roll No</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.roll_no)}</div></div>
                     <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">RFID Card No</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.rfid_card_no)}</div></div>
-                    <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Hostel</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.hostel_required)}</div></div>
+                    <div><div className="mb-1 text-xs font-bold uppercase text-slate-400">Hostel</div><div className="font-semibold text-slate-900">{displayValue(selectedStudent.hostel_required)} {selectedStudent.hostel_required === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_hostel_fee ?? selectedStudent.hostel_fee)})` : ''}</div></div>
                   </div>
                 </section>
 
@@ -1504,6 +1640,7 @@ export default function Students() {
                     <div className="flex items-center justify-between"><span>Transport</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.transport)} {selectedStudent.transport === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_transport_fee ?? selectedStudent.transport_fee)})` : ''}</span></div>
                     <div className="flex items-center justify-between"><span>Entrance</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.entrance)} {selectedStudent.entrance === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_entrance_fee ?? selectedStudent.entrance_fee)})` : ''}</span></div>
                     <div className="flex items-center justify-between"><span>Fooding</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.fooding)} {selectedStudent.fooding === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_fooding_fee ?? selectedStudent.fooding_fee)})` : ''}</span></div>
+                    <div className="flex items-center justify-between"><span>Hostel</span><span className="font-semibold text-slate-900">{displayValue(selectedStudent.hostel_required)} {selectedStudent.hostel_required === 'Yes' ? `(Rs ${displayValue(selectedStudent.dynamic_fees?.dynamic_hostel_fee ?? selectedStudent.hostel_fee)})` : ''}</span></div>
                   </div>
                 </div>
 
@@ -1652,26 +1789,26 @@ export default function Students() {
                 </div>
               </div>
               <div className="overflow-x-auto p-6">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="px-4 py-3 text-sm font-bold text-slate-700">Sl.</th>
-                      <th className="px-4 py-3 text-sm font-bold text-slate-700">Class</th>
-                      {categoryKeys.map((key) => <th key={key} className="px-4 py-3 text-sm font-bold text-slate-700">{key}</th>)}
-                      <th className="px-4 py-3 text-sm font-bold text-slate-700">TOTAL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <TableHead>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHeaderCell className="px-4 py-3">Sl.</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Class</TableHeaderCell>
+                      {categoryKeys.map((key) => <TableHeaderCell key={key} className="px-4 py-3">{key}</TableHeaderCell>)}
+                      <TableHeaderCell className="px-4 py-3">TOTAL</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {boysSummary.map((row, index) => (
-                      <tr key={row.className} className="border-b border-slate-100">
-                        <td className="px-4 py-3 text-sm text-slate-600">{index + 1}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-900">{row.className}</td>
-                        {categoryKeys.map((key) => <td key={key} className="px-4 py-3 text-sm text-slate-600">{row[key]}</td>)}
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-900">{row.total}</td>
-                      </tr>
+                      <TableRow key={row.className}>
+                        <TableCell className="px-4 py-3">{index + 1}</TableCell>
+                        <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.className}</TableCell>
+                        {categoryKeys.map((key) => <TableCell key={key} className="px-4 py-3">{row[key]}</TableCell>)}
+                        <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.total}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </div>
 
@@ -1696,26 +1833,26 @@ export default function Students() {
                 </div>
               </div>
               <div className="overflow-x-auto p-6">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="px-4 py-3 text-sm font-bold text-slate-700">Sl.</th>
-                      <th className="px-4 py-3 text-sm font-bold text-slate-700">Class</th>
-                      {categoryKeys.map((key) => <th key={key} className="px-4 py-3 text-sm font-bold text-slate-700">{key}</th>)}
-                      <th className="px-4 py-3 text-sm font-bold text-slate-700">TOTAL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <TableHead>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHeaderCell className="px-4 py-3">Sl.</TableHeaderCell>
+                      <TableHeaderCell className="px-4 py-3">Class</TableHeaderCell>
+                      {categoryKeys.map((key) => <TableHeaderCell key={key} className="px-4 py-3">{key}</TableHeaderCell>)}
+                      <TableHeaderCell className="px-4 py-3">TOTAL</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {girlsSummary.map((row, index) => (
-                      <tr key={row.className} className="border-b border-slate-100">
-                        <td className="px-4 py-3 text-sm text-slate-600">{index + 1}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-900">{row.className}</td>
-                        {categoryKeys.map((key) => <td key={key} className="px-4 py-3 text-sm text-slate-600">{row[key]}</td>)}
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-900">{row.total}</td>
-                      </tr>
+                      <TableRow key={row.className}>
+                        <TableCell className="px-4 py-3">{index + 1}</TableCell>
+                        <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.className}</TableCell>
+                        {categoryKeys.map((key) => <TableCell key={key} className="px-4 py-3">{row[key]}</TableCell>)}
+                        <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.total}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </div>
           </div>
@@ -1840,32 +1977,32 @@ export default function Students() {
               </div>
               <div className="max-h-[calc(88vh-88px)] overflow-auto">
                 {reportData.length > 0 ? (
-                  <table className="w-full text-left">
-                    <thead className="sticky top-0 z-10 bg-white">
-                      <tr className="border-b border-slate-100">
+                  <Table>
+                    <TableHead className="sticky top-0 z-10 bg-white">
+                      <TableRow className="hover:bg-transparent">
                         {selectedReportFields.map((field) => (
-                          <th key={field} className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">
+                          <TableHeaderCell key={field} className="px-8 py-4 text-slate-400">
                             {reportFieldHeaders[field]}
-                          </th>
+                          </TableHeaderCell>
                         ))}
-                        <th className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Class</th>
-                        <th className="px-8 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Session</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
+                        <TableHeaderCell className="px-8 py-4 text-slate-400">Class</TableHeaderCell>
+                        <TableHeaderCell className="px-8 py-4 text-slate-400">Session</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {reportData.map((s) => (
-                        <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                        <TableRow key={s.id}>
                           {selectedReportFields.map((field) => (
-                            <td key={field} className="px-8 py-4 text-sm text-slate-600">
+                            <TableCell key={field} className="px-8 py-4">
                               {displayValue(s[field])}
-                            </td>
+                            </TableCell>
                           ))}
-                          <td className="px-8 py-4 text-sm text-slate-600">{displayValue(s.class_name)}</td>
-                          <td className="px-8 py-4 text-sm text-slate-600">{displayValue(s.session)}</td>
-                        </tr>
+                          <TableCell className="px-8 py-4">{displayValue(s.class_name)}</TableCell>
+                          <TableCell className="px-8 py-4">{displayValue(s.session)}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 ) : (
                   <div className="px-8 py-16 text-center">
                     <h4 className="text-lg font-semibold text-slate-900">No results found</h4>

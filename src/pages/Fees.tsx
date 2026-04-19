@@ -1,8 +1,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, IndianRupee, Download, ArrowRight, Printer, AlertCircle } from 'lucide-react';
+import { Plus, Search, IndianRupee, Download, ArrowRight, Printer, AlertCircle, Ban, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import {
+  Button,
+  EmptyTableRow,
+  Input,
+  Modal,
+  PageHeader,
+  Pagination,
+  StatCard,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableToolbar,
+} from '../components/ui';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -22,7 +39,7 @@ const getFeeSortTime = (fee: any) => {
 
 export default function Fees() {
   const { user } = useAuth();
-  console.log("DEBUG: Current User Data ->", user);
+  const location = useLocation();
 
   const [fees, setFees] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
@@ -31,7 +48,7 @@ export default function Fees() {
   const [profileStudent, setProfileStudent] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<any | null>(null);
-  const [editFormData, setEditFormData] = useState({ amount: '' });
+  const [editFormData, setEditFormData] = useState({ amount: '', admin_password: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
@@ -52,6 +69,13 @@ export default function Fees() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('action') === 'collect' && user?.role === 'admin') {
+      setIsModalOpen(true);
+    }
+  }, [location.search, user?.role]);
 
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
@@ -78,6 +102,10 @@ export default function Fees() {
       return;
     }
     const selectedPendingFee = fees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
+    if (!selectedPendingFee) {
+      alert('Please select a pending fee row. Payments must be collected against the student fee setup.');
+      return;
+    }
     const res = await fetch('/api/fees', {
       method: 'POST',
       headers: { 
@@ -127,6 +155,10 @@ export default function Fees() {
       alert('Only admin can modify financial information.');
       return;
     }
+    if (!editFormData.admin_password) {
+      alert('Admin password is required.');
+      return;
+    }
     
     const res = await fetch(`/api/fees/${editingFee.id}`, {
       method: 'PUT',
@@ -134,7 +166,7 @@ export default function Fees() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify({ amount: editFormData.amount })
+      body: JSON.stringify({ amount: editFormData.amount, admin_password: editFormData.admin_password })
     });
     
     if (res.ok) {
@@ -150,8 +182,75 @@ export default function Fees() {
 
   const openEditModal = (fee: any) => {
     setEditingFee(fee);
-    setEditFormData({ amount: String(fee.amount) });
+    setEditFormData({ amount: String(fee.amount), admin_password: '' });
     setIsEditModalOpen(true);
+  };
+
+  const askAdminPassword = () => {
+    const password = window.prompt('Enter admin password to continue');
+    return password?.trim() || '';
+  };
+
+  const handleCancelPayment = async (fee: any) => {
+    if (user?.role !== 'admin') {
+      alert('Only admin can cancel payments.');
+      return;
+    }
+    if (fee.status !== 'paid') {
+      alert('Only paid receipts can be cancelled.');
+      return;
+    }
+    const reason = window.prompt('Reason for cancelling this payment?') || '';
+    const adminPassword = askAdminPassword();
+    if (!adminPassword) return;
+
+    const res = await fetch(`/api/admin/fees/${fee.id}/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ admin_password: adminPassword, reason })
+    });
+
+    if (res.ok) {
+      fetchData();
+      alert('Payment cancelled and due restored.');
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to cancel payment');
+    }
+  };
+
+  const handleDeletePayment = async (fee: any) => {
+    if (user?.role !== 'admin') {
+      alert('Only admin can delete fee rows.');
+      return;
+    }
+    if (fee.status === 'paid') {
+      alert('Cancel paid receipts before deleting them.');
+      return;
+    }
+    if (!window.confirm(`Delete fee row ${fee.bill_no || fee.id}? This cannot be undone.`)) return;
+    const adminPassword = askAdminPassword();
+    if (!adminPassword) return;
+
+    const res = await fetch(`/api/admin/fees/${fee.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ admin_password: adminPassword })
+    });
+
+    if (res.ok) {
+      fetchData();
+      alert('Fee row deleted.');
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to delete fee row');
+    }
   };
 
   const filteredFees = useMemo(() => {
@@ -204,7 +303,7 @@ export default function Fees() {
     : [];
   const selectedPendingFee = selectedStudentPendingFees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
   const blockingOldDue = selectedStudentPendingFees.find(fee => {
-    if (fee.type === 'Old Due Collection') return true;
+    if (String(fee.type || '').toLowerCase().includes('old due')) return true;
     if (!fee.student_id || !selectedStudent) return false;
     
     const feeSession = fee.academic_session;
@@ -230,13 +329,14 @@ export default function Fees() {
   const selectedStudentTotalFee = !selectedStudent ? 0 : (() => {
     const d = selectedStudent.dynamic_fees;
     if (d) {
-      return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0);
+      return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0) + Number(d.dynamic_hostel_fee || 0);
     }
     return Number(selectedStudent.admission_fee || 0) +
       Number(selectedStudent.coaching_fee || 0) +
       Number(selectedStudent.transport_fee || 0) +
       Number(selectedStudent.entrance_fee || 0) +
-      Number(selectedStudent.fooding_fee || 0);
+      Number(selectedStudent.fooding_fee || 0) +
+      Number(selectedStudent.hostel_fee || 0);
   })();
   const selectedStudentPaidAmount = selectedStudent
     ? fees
@@ -267,13 +367,14 @@ export default function Fees() {
     const totalFee = !student ? 0 : (() => {
       const d = student.dynamic_fees;
       if (d) {
-        return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0);
+        return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0) + Number(d.dynamic_hostel_fee || 0);
       }
       return Number(student.admission_fee || 0) +
         Number(student.coaching_fee || 0) +
         Number(student.transport_fee || 0) +
         Number(student.entrance_fee || 0) +
-        Number(student.fooding_fee || 0);
+        Number(student.fooding_fee || 0) +
+        Number(student.hostel_fee || 0);
     })();
     const paidAmount = student
       ? fees
@@ -466,56 +567,47 @@ export default function Fees() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Fees & Dues</h1>
-          <p className="text-slate-500">Collect payments, clear pending dues, and print student receipts.</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
+      <PageHeader
+        title="Fees & Dues"
+        description="Collect payments, clear pending dues, and print student receipts."
+        actions={
+          <>
           <Link
             to="/fees/reports"
-            className="flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 font-semibold text-indigo-700 transition-all hover:bg-indigo-50"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700 transition-all hover:bg-indigo-50"
           >
             Due Reports
             <ArrowRight className="w-4 h-4" />
           </Link>
           {user?.role === 'admin' && (
-            <button 
+            <Button
+              variant="success"
               onClick={() => setIsModalOpen(true)}
-              className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-semibold transition-all shadow-lg shadow-emerald-200"
             >
               <Plus className="w-5 h-5" />
               Collect Payment
-            </button>
+            </Button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div id="fee-summary" className="scroll-mt-24 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">Collected This Month</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(totalCollected)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">Pending Dues</p>
-          <p className="text-2xl font-bold text-rose-600 mt-1">{formatCurrency(pendingAmount)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">Collected Today</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(todayCollection)}</p>
-        </div>
+        <StatCard label="Collected This Month" value={formatCurrency(totalCollected)} />
+        <StatCard label="Pending Dues" value={formatCurrency(pendingAmount)} valueClassName="text-rose-600" />
+        <StatCard label="Collected Today" value={formatCurrency(todayCollection)} valueClassName="text-emerald-600" />
       </div>
 
-      <div id="fee-register" className="scroll-mt-24 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+      <TableContainer id="fee-register" className="scroll-mt-24">
+        <TableToolbar>
           <div className="relative w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
+            <Input
               type="text"
               placeholder="Search by receipt, student, ledger or status..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+              leftIcon={<Search className="h-4 w-4" />}
+              className="bg-white py-2"
             />
           </div>
           <Link
@@ -525,28 +617,28 @@ export default function Fees() {
             <Download className="w-4 h-4" />
             Open Due Reports
           </Link>
-        </div>
+        </TableToolbar>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">Bill No</th>
-                <th className="px-6 py-4 font-semibold">Student</th>
-                <th className="px-6 py-4 font-semibold">Fee Type</th>
-                <th className="px-6 py-4 font-semibold">Amount</th>
-                <th className="px-6 py-4 font-semibold">Date</th>
-                <th className="px-6 py-4 font-semibold">Status</th>
+          <Table>
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell>Bill No</TableHeaderCell>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Fee Type</TableHeaderCell>
+                <TableHeaderCell>Amount</TableHeaderCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
                 {user?.role === 'admin' && (
-                  <th className="px-6 py-4 font-semibold text-center">Edit</th>
+                  <TableHeaderCell className="text-center">Actions</TableHeaderCell>
                 )}
-                <th className="px-6 py-4 font-semibold text-right">Receipt</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+                <TableHeaderCell className="text-right">Receipt</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {paginatedFees.map((fee) => (
-                <tr key={fee.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-mono text-slate-500">{fee.bill_no}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-slate-900">
+                <TableRow key={fee.id}>
+                  <TableCell className="font-mono">{fee.bill_no}</TableCell>
+                  <TableCell className="font-semibold text-slate-900">
                     <button
                       type="button"
                       onClick={() => openStudentProfile(fee.student_id)}
@@ -554,111 +646,105 @@ export default function Fees() {
                     >
                       {fee.student_name}
                     </button>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{fee.type}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-slate-900">{formatCurrency(Number(fee.amount))}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(fee.date), 'MMM dd, yyyy')}</td>
-                  <td className="px-6 py-4">
+                  </TableCell>
+                  <TableCell>{fee.type}</TableCell>
+                  <TableCell className="font-bold text-slate-900">{formatCurrency(Number(fee.amount))}</TableCell>
+                  <TableCell>{format(new Date(fee.date), 'MMM dd, yyyy')}</TableCell>
+                  <TableCell>
                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                      fee.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      fee.status === 'paid'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : fee.status === 'cancelled'
+                          ? 'bg-slate-200 text-slate-600'
+                          : 'bg-amber-100 text-amber-700'
                     }`}>
                       {fee.status}
                     </span>
-                  </td>
+                  </TableCell>
                   {user?.role === 'admin' && (
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => openEditModal(fee)}
-                        className="p-2 hover:bg-slate-100 hover:shadow-sm rounded-lg text-emerald-600 transition-all font-medium text-xs border border-emerald-100 bg-emerald-50"
-                      >
-                        Edit
-                      </button>
-                    </td>
+                    <TableCell>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {fee.status !== 'paid' && (
+                          <Button
+                            onClick={() => openEditModal(fee)}
+                            variant="outline"
+                            size="sm"
+                            className="border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                          >
+                            Edit
+                          </Button>
+                        )}
+                        {fee.status === 'paid' && (
+                          <Button
+                            onClick={() => handleCancelPayment(fee)}
+                            variant="outline"
+                            size="sm"
+                            className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                          >
+                            <Ban className="mr-1 h-3.5 w-3.5" />
+                            Cancel
+                          </Button>
+                        )}
+                        {fee.status !== 'paid' && (
+                          <Button
+                            onClick={() => handleDeletePayment(fee)}
+                            variant="outline"
+                            size="sm"
+                            className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   )}
-                  <td className="px-6 py-4 text-right">
-                    <button
+                  <TableCell className="text-right">
+                    <Button
                       onClick={() => handlePrintReceipt(fee)}
-                      className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-indigo-600 transition-all"
+                      variant="ghost"
+                      size="icon"
+                      className="text-indigo-600 hover:bg-white hover:shadow-sm"
                     >
                       <Printer className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
+                    </Button>
+                  </TableCell>
+                </TableRow>
               ))}
               {filteredFees.length === 0 && (
-                <tr>
-                  <td colSpan={user?.role === 'admin' ? 8 : 7} className="px-6 py-10 text-center text-sm text-slate-500">
-                    No fee records match your search.
-                  </td>
-                </tr>
+                <EmptyTableRow colSpan={user?.role === 'admin' ? 8 : 7}>No fee records match your search.</EmptyTableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
         
-        {totalPages > 1 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-100 bg-slate-50/50 gap-4">
-            <div className="text-sm text-slate-500">
-              Showing <span className="font-semibold text-slate-900">{(currentPage - 1) * pageSize + 1}</span> to <span className="font-semibold text-slate-900">{Math.min(currentPage * pageSize, filteredFees.length)}</span> of <span className="font-semibold text-slate-900">{filteredFees.length}</span> entries
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
-              >
-                Previous
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1)
-                .map((page, index, array) => (
-                  <React.Fragment key={page}>
-                    {index > 0 && array[index - 1] !== page - 1 && (
-                      <span className="px-2 py-1.5 text-slate-400">...</span>
-                    )}
-                    <button
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                        currentPage === page
-                          ? 'bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700'
-                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  </React.Fragment>
-              ))}
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+        <Pagination
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredFees.length}
+          pageSize={pageSize}
+          itemName="fees"
+          onPageChange={setCurrentPage}
+        />
+      </TableContainer>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4 sm:p-6">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h3 className="text-xl font-bold text-slate-900">
-                Student Details
-                {selectedStudent?.reg_no ? (
-                  <>
-                    {' '}for Student :{' '}
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700">
-                      {selectedStudent.reg_no}
-                    </span>
-                  </>
-                ) : null}
-              </h3>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                <Plus className="w-6 h-6 rotate-45 text-slate-400" />
-              </button>
-            </div>
+        <Modal
+          onClose={() => setIsModalOpen(false)}
+          title={
+            <>
+              Student Details
+              {selectedStudent?.reg_no ? (
+                <>
+                  {' '}for Student :{' '}
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700">
+                    {selectedStudent.reg_no}
+                  </span>
+                </>
+              ) : null}
+            </>
+          }
+        >
             <form onSubmit={handleSubmit} className="space-y-6 p-6 overflow-y-auto">
               <div className="space-y-2">
                 <div className="space-y-2">
@@ -808,7 +894,7 @@ export default function Fees() {
                     value={selectedPendingFeeId}
                     onChange={(e) => handlePendingFeeChange(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    disabled={blockingOldDue || !selectedStudent || selectedStudentPendingFees.length === 0 || (!blockingAdmissionFee && Boolean(blockingAdmissionFee))}
+                    disabled={Boolean(blockingOldDue) || !selectedStudent || selectedStudentPendingFees.length === 0}
                   >
                     {selectedStudentPendingFees.length === 0 ? (
                       <option value="">No pending fee rows for this student</option>
@@ -884,28 +970,25 @@ export default function Fees() {
                   onChange={(e) => setFormData({...formData, date: e.target.value})}
                 />
                 </div>
-                <button 
+                <Button 
                   type="submit"
-                  disabled={Boolean(blockingOldDue) || !selectedStudent}
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-all hover:bg-indigo-700 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={
+                    Boolean(blockingOldDue) ||
+                    !selectedStudent ||
+                    !selectedPendingFee ||
+                    (Boolean(blockingAdmissionFee) && selectedPendingFee?.id !== blockingAdmissionFee?.id)
+                  }
+                  className="w-full px-6 py-3 font-bold"
                 >
                   Save and Print
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {isEditModalOpen && editingFee && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[65] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-slate-900">Edit Fee Amount</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                <Plus className="w-6 h-6 rotate-45 text-slate-400" />
-              </button>
-            </div>
+        <Modal title="Edit Fee Amount" onClose={() => setIsEditModalOpen(false)} className="max-w-md">
             <form onSubmit={handleEditSubmit} className="space-y-6 p-6">
               <div className="space-y-4">
                 <div className="flex justify-between text-sm">
@@ -930,22 +1013,33 @@ export default function Fees() {
                       min="0"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-11 pr-4 text-slate-900 font-bold outline-none focus:ring-2 focus:ring-emerald-500"
                       value={editFormData.amount}
-                      onChange={(e) => setEditFormData({ amount: e.target.value })}
+                      onChange={(e) => setEditFormData((current) => ({ ...current, amount: e.target.value }))}
                     />
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Admin Password <span className="text-rose-500">*</span></label>
+                  <input
+                    required
+                    type="password"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                    value={editFormData.admin_password}
+                    onChange={(e) => setEditFormData((current) => ({ ...current, admin_password: e.target.value }))}
+                    placeholder="Confirm admin password"
+                  />
+                </div>
               </div>
               <div className="pt-2">
-                <button 
+                <Button 
                   type="submit"
-                  className="w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white transition-all hover:bg-emerald-700 shadow-lg shadow-emerald-200"
+                  variant="success"
+                  className="w-full px-4 py-3 font-bold"
                 >
                   Save Changes
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {profileStudent && (
@@ -1011,24 +1105,24 @@ export default function Fees() {
                     {profileStudentPendingFees.length === 0 ? (
                       <div className="px-5 py-8 text-sm text-slate-500">No pending dues for this student.</div>
                     ) : (
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-white text-xs uppercase tracking-wider text-slate-500">
-                          <tr>
-                            <th className="px-5 py-3 font-semibold">Ledger</th>
-                            <th className="px-5 py-3 font-semibold">Bill No</th>
-                            <th className="px-5 py-3 font-semibold text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
+                      <Table className="text-sm">
+                        <TableHead className="bg-white">
+                          <TableRow className="hover:bg-transparent">
+                            <TableHeaderCell className="px-5 py-3">Ledger</TableHeaderCell>
+                            <TableHeaderCell className="px-5 py-3">Bill No</TableHeaderCell>
+                            <TableHeaderCell className="px-5 py-3 text-right">Amount</TableHeaderCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
                           {profileStudentPendingFees.map((fee) => (
-                            <tr key={fee.id}>
-                              <td className="px-5 py-3 text-slate-700">{fee.type}</td>
-                              <td className="px-5 py-3 font-mono text-xs text-slate-500">{fee.bill_no}</td>
-                              <td className="px-5 py-3 text-right font-semibold text-rose-600">{formatCurrency(Number(fee.amount || 0))}</td>
-                            </tr>
+                            <TableRow key={fee.id}>
+                              <TableCell className="px-5 py-3">{fee.type}</TableCell>
+                              <TableCell className="px-5 py-3 font-mono text-xs">{fee.bill_no}</TableCell>
+                              <TableCell className="px-5 py-3 text-right font-semibold text-rose-600">{formatCurrency(Number(fee.amount || 0))}</TableCell>
+                            </TableRow>
                           ))}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     )}
                   </div>
                 </section>
@@ -1041,24 +1135,24 @@ export default function Fees() {
                     {profileStudentPaidFees.length === 0 ? (
                       <div className="px-5 py-8 text-sm text-slate-500">No payments recorded yet.</div>
                     ) : (
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-white text-xs uppercase tracking-wider text-slate-500">
-                          <tr>
-                            <th className="px-5 py-3 font-semibold">Ledger</th>
-                            <th className="px-5 py-3 font-semibold">Date</th>
-                            <th className="px-5 py-3 font-semibold text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
+                      <Table className="text-sm">
+                        <TableHead className="bg-white">
+                          <TableRow className="hover:bg-transparent">
+                            <TableHeaderCell className="px-5 py-3">Ledger</TableHeaderCell>
+                            <TableHeaderCell className="px-5 py-3">Date</TableHeaderCell>
+                            <TableHeaderCell className="px-5 py-3 text-right">Amount</TableHeaderCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
                           {profileStudentPaidFees.slice(0, 10).map((fee) => (
-                            <tr key={fee.id}>
-                              <td className="px-5 py-3 text-slate-700">{fee.type}</td>
-                              <td className="px-5 py-3 text-slate-500">{format(new Date(fee.date), 'MMM dd, yyyy')}</td>
-                              <td className="px-5 py-3 text-right font-semibold text-emerald-600">{formatCurrency(Number(fee.amount || 0))}</td>
-                            </tr>
+                            <TableRow key={fee.id}>
+                              <TableCell className="px-5 py-3">{fee.type}</TableCell>
+                              <TableCell className="px-5 py-3">{format(new Date(fee.date), 'MMM dd, yyyy')}</TableCell>
+                              <TableCell className="px-5 py-3 text-right font-semibold text-emerald-600">{formatCurrency(Number(fee.amount || 0))}</TableCell>
+                            </TableRow>
                           ))}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     )}
                   </div>
                 </section>

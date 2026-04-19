@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw, WalletCards, GraduationCap, Archive, CalendarDays, BookOpen, Download, ShieldCheck, Activity, ClipboardCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../components/ui';
 
 type AdminUser = {
   id: number;
@@ -592,30 +593,30 @@ export default function AdminSettings() {
               <p className="text-xs text-slate-500">Showing first 25 students. Use this to quickly spot structure vs ledger gaps.</p>
             </div>
             <div className="max-h-96 overflow-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-white text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Student</th>
-                    <th className="px-4 py-3">Class</th>
-                    <th className="px-4 py-3">Structure</th>
-                    <th className="px-4 py-3">Paid</th>
-                    <th className="px-4 py-3">Pending</th>
-                    <th className="px-4 py-3">Balance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
+              <Table className="text-sm">
+                <TableHead className="bg-white">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHeaderCell className="px-4 py-3">Student</TableHeaderCell>
+                    <TableHeaderCell className="px-4 py-3">Class</TableHeaderCell>
+                    <TableHeaderCell className="px-4 py-3">Structure</TableHeaderCell>
+                    <TableHeaderCell className="px-4 py-3">Paid</TableHeaderCell>
+                    <TableHeaderCell className="px-4 py-3">Pending</TableHeaderCell>
+                    <TableHeaderCell className="px-4 py-3">Balance</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody className="bg-white">
                   {reconciliationRows.slice(0, 25).map((row) => (
-                    <tr key={row.student_id}>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{row.name}<span className="ml-2 text-xs text-slate-500">{row.reg_no}</span></td>
-                      <td className="px-4 py-3 text-slate-600">{row.class_name}</td>
-                      <td className="px-4 py-3">{formatCurrency(Number(row.structure_total || 0))}</td>
-                      <td className="px-4 py-3">{formatCurrency(Number(row.paid || 0))}</td>
-                      <td className="px-4 py-3">{formatCurrency(Number(row.pending || 0))}</td>
-                      <td className="px-4 py-3 font-bold">{formatCurrency(Number(row.balance_by_structure || 0))}</td>
-                    </tr>
+                    <TableRow key={row.student_id}>
+                      <TableCell className="px-4 py-3 font-semibold text-slate-900">{row.name}<span className="ml-2 text-xs text-slate-500">{row.reg_no}</span></TableCell>
+                      <TableCell className="px-4 py-3">{row.class_name}</TableCell>
+                      <TableCell className="px-4 py-3">{formatCurrency(Number(row.structure_total || 0))}</TableCell>
+                      <TableCell className="px-4 py-3">{formatCurrency(Number(row.paid || 0))}</TableCell>
+                      <TableCell className="px-4 py-3">{formatCurrency(Number(row.pending || 0))}</TableCell>
+                      <TableCell className="px-4 py-3 font-bold">{formatCurrency(Number(row.balance_by_structure || 0))}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </div>
         )}

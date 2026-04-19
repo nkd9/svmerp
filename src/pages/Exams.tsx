@@ -3,6 +3,17 @@ import { Plus, BookOpen, Award, FileText, X, Download, Search, UserRound, Clipbo
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { printReport } from '../utils/print';
+import {
+  Button,
+  EmptyTableRow,
+  Pagination,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '../components/ui';
 
 const formatPercentage = (obtained: number, max: number) => {
   if (!max) {
@@ -847,80 +858,77 @@ export default function Exams() {
           </div>
         </div>
         <div className="w-full">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="p-2 font-semibold">Reg No</th>
-                <th className="p-2 font-semibold">Student</th>
-                <th className="p-2 font-semibold hidden lg:table-cell">Class</th>
+          <Table className="text-sm">
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell className="p-2">Reg No</TableHeaderCell>
+                <TableHeaderCell className="p-2">Student</TableHeaderCell>
+                <TableHeaderCell className="hidden p-2 lg:table-cell">Class</TableHeaderCell>
                 {marksTableColumns.map((column) => (
-                  <th key={column.name} className="p-2 font-semibold text-center leading-tight">
+                  <TableHeaderCell key={column.name} className="p-2 text-center leading-tight">
                     <div className="line-clamp-2" title={column.name}>{column.name}</div>
                     <div className="text-[10px] text-slate-400">({column.max_marks})</div>
-                  </th>
+                  </TableHeaderCell>
                 ))}
-                <th className="p-2 font-semibold text-center">Total</th>
-                <th className="p-2 font-semibold text-center">%</th>
-                <th className="p-2 font-semibold text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+                <TableHeaderCell className="p-2 text-center">Total</TableHeaderCell>
+                <TableHeaderCell className="p-2 text-center">%</TableHeaderCell>
+                <TableHeaderCell className="p-2 text-right">Action</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {paginatedMarksTableRows.map((student) => {
                 return (
-                  <tr key={student.id} className="hover:bg-slate-50">
-                    <td className="p-2 text-slate-600">{student.reg_no}</td>
-                    <td className="p-2 font-semibold text-slate-900">{student.student_name}</td>
-                    <td className="p-2 text-slate-600 hidden lg:table-cell">{student.class_name}</td>
+                  <TableRow key={student.id}>
+                    <TableCell className="p-2">{student.reg_no}</TableCell>
+                    <TableCell className="p-2 font-semibold text-slate-900">{student.student_name}</TableCell>
+                    <TableCell className="hidden p-2 lg:table-cell">{student.class_name}</TableCell>
                     {marksTableColumns.map((column) => (
-                      <td key={column.name} className="p-2 text-slate-600 text-center font-medium">
+                      <TableCell key={column.name} className="p-2 text-center font-medium">
                         {student.subjects[column.name] || '-'}
-                      </td>
+                      </TableCell>
                     ))}
-                    <td className="p-2 text-slate-600 text-center font-bold">{student.total_marks}</td>
-                    <td className="p-2 text-slate-600 text-center font-bold">{student.percentage}</td>
-                    <td className="p-2 text-right">
+                    <TableCell className="p-2 text-center font-bold">{student.total_marks}</TableCell>
+                    <TableCell className="p-2 text-center font-bold">{student.percentage}</TableCell>
+                    <TableCell className="p-2 text-right">
                       <div className="flex justify-end gap-1">
-                        <button
+                        <Button
                           type="button"
+                          variant="outline"
+                          size="icon"
                           disabled={!student.hasMarks}
                           onClick={() => setSelectedStudentForMarksView(
                             students.find((item) => item.id === student.id) || null,
                           )}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition-all hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-8 w-8"
                           title="View Marks"
                         >
                           <Eye className="h-4 w-4" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
+                          size="icon"
                           onClick={() => handleEditStudentMarks(student)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white transition-all hover:bg-indigo-700"
+                          className="h-8 w-8"
                           title="Edit Marks"
                         >
                           <Pencil className="h-4 w-4" />
-                        </button>
+                        </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
               {marksTableClassId && marksTableStudents.length === 0 && (
-                <tr>
-                  <td colSpan={marksTableColumns.length + 6} className="px-6 py-10 text-center text-sm text-slate-500">No students found in this class.</td>
-                </tr>
+                <EmptyTableRow colSpan={marksTableColumns.length + 6}>No students found in this class.</EmptyTableRow>
               )}
               {marksTableClassId && !marksTableExamId && (
-                <tr>
-                  <td colSpan={marksTableColumns.length + 6} className="px-6 py-10 text-center text-sm text-slate-500">Select an exam to view the marks table.</td>
-                </tr>
+                <EmptyTableRow colSpan={marksTableColumns.length + 6}>Select an exam to view the marks table.</EmptyTableRow>
               )}
               {!marksTableClassId && (
-                <tr>
-                  <td colSpan={marksTableColumns.length + 6} className="px-6 py-10 text-center text-sm text-slate-500">Select a class and exam to view the student marks table.</td>
-                </tr>
+                <EmptyTableRow colSpan={marksTableColumns.length + 6}>Select a class and exam to view the student marks table.</EmptyTableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
         {marksTableClassId && marksTableExamId && marksTableRows.length > 0 && (
           <div className="flex items-center justify-between border-t border-slate-100 p-4 pb-6">
@@ -943,52 +951,7 @@ export default function Exams() {
             </div>
             
             {marksTableRows.length > (marksTablePageSize === 'all' ? Infinity : Number(marksTablePageSize)) && marksTableTotalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setMarksTableCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={marksTableCurrentPage === 1}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Previous Page"
-                >
-                  <span className="sr-only">Previous Page</span>
-                  &lt;
-                </button>
-                <div className="flex items-center gap-1 px-2">
-                  {Array.from({ length: Math.min(5, marksTableTotalPages) }, (_, i) => {
-                    let pageNum = i + 1;
-                    if (marksTableTotalPages > 5) {
-                      if (marksTableCurrentPage > 3) {
-                        pageNum = marksTableCurrentPage - 2 + i;
-                        if (pageNum > marksTableTotalPages) {
-                          pageNum = marksTableTotalPages - 4 + i;
-                        }
-                      }
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setMarksTableCurrentPage(pageNum)}
-                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium transition-colors ${
-                          marksTableCurrentPage === pageNum
-                            ? 'bg-indigo-600 text-white'
-                            : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  onClick={() => setMarksTableCurrentPage((p) => Math.min(marksTableTotalPages, p + 1))}
-                  disabled={marksTableCurrentPage === marksTableTotalPages}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Next Page"
-                >
-                  <span className="sr-only">Next Page</span>
-                  &gt;
-                </button>
-              </div>
+              <Pagination page={marksTableCurrentPage} totalPages={marksTableTotalPages} onPageChange={setMarksTableCurrentPage} />
             )}
           </div>
         )}
@@ -1448,38 +1411,38 @@ export default function Exams() {
               {resultRows.length === 0 ? (
                 <div className="p-10 text-center text-slate-500">No marks entered for this exam yet.</div>
               ) : (
-                <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-white border-b border-slate-100">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Student</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Reg No</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Class</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Exam</th>
+                <Table>
+                  <TableHead className="sticky top-0 bg-white">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHeaderCell>Student</TableHeaderCell>
+                      <TableHeaderCell>Reg No</TableHeaderCell>
+                      <TableHeaderCell>Class</TableHeaderCell>
+                      <TableHeaderCell>Exam</TableHeaderCell>
                       {resultColumns.map((column) => (
-                        <th key={column.name} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <TableHeaderCell key={column.name}>
                           {column.name} ({column.max_marks})
-                        </th>
+                        </TableHeaderCell>
                       ))}
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Total Marks</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                      <TableHeaderCell>Total Marks</TableHeaderCell>
+                      <TableHeaderCell>Percentage</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {resultRows.map((row, index) => (
-                      <tr key={`${row.reg_no}-${row.exam_name}-${index}`} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm font-medium text-slate-900">{row.student_name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.reg_no}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.class_name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.exam_name}</td>
+                      <TableRow key={`${row.reg_no}-${row.exam_name}-${index}`}>
+                        <TableCell className="font-medium text-slate-900">{row.student_name}</TableCell>
+                        <TableCell>{row.reg_no}</TableCell>
+                        <TableCell>{row.class_name}</TableCell>
+                        <TableCell>{row.exam_name}</TableCell>
                         {resultColumns.map((column) => (
-                          <td key={column.name} className="px-6 py-4 text-sm text-slate-600">{(row as Record<string, string>)[column.name] || '-'}</td>
+                          <TableCell key={column.name}>{(row as Record<string, string>)[column.name] || '-'}</TableCell>
                         ))}
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.total_marks}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.percentage}</td>
-                      </tr>
+                        <TableCell>{row.total_marks}</TableCell>
+                        <TableCell>{row.percentage}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               )}
             </div>
           </div>
@@ -1504,32 +1467,32 @@ export default function Exams() {
               {selectedStudentMarksRows.length === 0 ? (
                 <div className="p-10 text-center text-slate-500">No marks entered for this student yet.</div>
               ) : (
-                <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-white border-b border-slate-100">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Exam</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Date</th>
+                <Table>
+                  <TableHead className="sticky top-0 bg-white">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHeaderCell>Exam</TableHeaderCell>
+                      <TableHeaderCell>Date</TableHeaderCell>
                       {selectedStudentMarksColumns.map((column) => (
-                        <th key={column} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <TableHeaderCell key={column}>
                           {column}
-                        </th>
+                        </TableHeaderCell>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {selectedStudentMarksRows.map((row, index) => (
-                      <tr key={`${row.exam_name}-${index}`} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-900">{row.exam_name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.exam_date || '-'}</td>
+                      <TableRow key={`${row.exam_name}-${index}`}>
+                        <TableCell className="font-semibold text-slate-900">{row.exam_name}</TableCell>
+                        <TableCell>{row.exam_date || '-'}</TableCell>
                         {selectedStudentMarksColumns.map((column) => (
-                          <td key={column} className="px-6 py-4 text-sm text-slate-600">
+                          <TableCell key={column}>
                             {row.subjects?.[column] || '-'}
-                          </td>
+                          </TableCell>
                         ))}
-                      </tr>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               )}
             </div>
           </div>
@@ -1605,65 +1568,65 @@ export default function Exams() {
                         <p className="mt-1 text-sm text-slate-500">Total Marks: {row.total_marks} | Percentage: {row.percentage}</p>
                       </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                          <thead>
-                            <tr className="border-b border-slate-100">
+                        <Table>
+                          <TableHead>
+                            <TableRow className="hover:bg-transparent">
                               {subjectReportColumns.map((column) => (
-                                <th key={column.name} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                <TableHeaderCell key={column.name}>
                                   {column.name} ({column.max_marks})
-                                </th>
+                                </TableHeaderCell>
                               ))}
-                              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Total Marks</th>
-                              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Percentage</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
+                              <TableHeaderCell>Total Marks</TableHeaderCell>
+                              <TableHeaderCell>Percentage</TableHeaderCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            <TableRow>
                               {subjectReportColumns.map((column) => (
-                                <td key={column.name} className="px-6 py-4 text-sm text-slate-600">{(row as Record<string, string>)[column.name] || '-'}</td>
+                                <TableCell key={column.name}>{(row as Record<string, string>)[column.name] || '-'}</TableCell>
                               ))}
-                              <td className="px-6 py-4 text-sm font-medium text-slate-900">{row.total_marks}</td>
-                              <td className="px-6 py-4 text-sm font-medium text-slate-900">{row.percentage}</td>
-                            </tr>
-                          </tbody>
-                        </table>
+                              <TableCell className="font-medium text-slate-900">{row.total_marks}</TableCell>
+                              <TableCell className="font-medium text-slate-900">{row.percentage}</TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
                       </div>
                     </section>
                   ))}
                 </div>
               ) : (
-                <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-slate-100">
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Student</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Reg No</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Class</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Exam</th>
+                <Table>
+                  <TableHead className="sticky top-0 bg-white">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHeaderCell>Student</TableHeaderCell>
+                      <TableHeaderCell>Reg No</TableHeaderCell>
+                      <TableHeaderCell>Class</TableHeaderCell>
+                      <TableHeaderCell>Exam</TableHeaderCell>
                       {subjectReportColumns.map((column) => (
-                        <th key={column.name} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <TableHeaderCell key={column.name}>
                           {column.name} ({column.max_marks})
-                        </th>
+                        </TableHeaderCell>
                       ))}
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Total Marks</th>
-                      <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                      <TableHeaderCell>Total Marks</TableHeaderCell>
+                      <TableHeaderCell>Percentage</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {activeReportRows.map((row, index) => (
-                      <tr key={`${row.reg_no}-${row.exam_name}-${index}`} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm font-medium text-slate-900">{row.student_name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.reg_no}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.class_name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.exam_name}</td>
+                      <TableRow key={`${row.reg_no}-${row.exam_name}-${index}`}>
+                        <TableCell className="font-medium text-slate-900">{row.student_name}</TableCell>
+                        <TableCell>{row.reg_no}</TableCell>
+                        <TableCell>{row.class_name}</TableCell>
+                        <TableCell>{row.exam_name}</TableCell>
                         {subjectReportColumns.map((column) => (
-                          <td key={column.name} className="px-6 py-4 text-sm text-slate-600">{(row as Record<string, string>)[column.name] || '-'}</td>
+                          <TableCell key={column.name}>{(row as Record<string, string>)[column.name] || '-'}</TableCell>
                         ))}
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.total_marks}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{row.percentage}</td>
-                      </tr>
+                        <TableCell>{row.total_marks}</TableCell>
+                        <TableCell>{row.percentage}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               )}
             </div>
           </div>

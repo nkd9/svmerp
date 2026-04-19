@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRight, GraduationCap } from 'lucide-react';
 import { getAcademicSessionOptions, getCurrentAcademicSession } from '../lib/academicSessions';
+import {
+  Button,
+  EmptyTableRow,
+  PageHeader,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableToolbar,
+} from '../components/ui';
 
 interface Student {
   id: number;
@@ -151,29 +165,26 @@ export default function StudentPromotion() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Year Promotion & Graduation</h1>
-        <p className="text-slate-500">Promote 1st year students to 2nd year or move passed-out students to alumni.</p>
-      </div>
+      <PageHeader title="Year Promotion & Graduation" description="Promote 1st year students to 2nd year or move passed-out students to alumni." />
 
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div>
             <label className="text-sm font-semibold text-slate-700">Current Year / Class</label>
-            <select value={fromClassId} onChange={e => { setFromClassId(e.target.value); setSelectedStudents([]); }} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
+            <Select value={fromClassId} onChange={e => { setFromClassId(e.target.value); setSelectedStudents([]); }} className="mt-1">
               <option value="">-- All Active Students --</option>
               {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            </Select>
           </div>
           <div className="flex items-end justify-center">
             <ArrowRight className="text-slate-400 mb-2" />
           </div>
           <div>
             <label className="text-sm font-semibold text-slate-700">Action Type</label>
-            <select value={isGraduation ? 'graduate' : 'promote'} onChange={e => setIsGraduation(e.target.value === 'graduate')} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
+            <Select value={isGraduation ? 'graduate' : 'promote'} onChange={e => setIsGraduation(e.target.value === 'graduate')} className="mt-1">
               <option value="promote">Promote to Next Year</option>
               <option value="graduate" disabled={!graduationAllowed}>Graduate to Alumni</option>
-            </select>
+            </Select>
             {selectedFromClass && !graduationAllowed && (
               <p className="mt-2 text-xs text-slate-500">Only 2nd year classes can be graduated. {selectedFromClass.name} can only be promoted to {allowedTargetClassName}.</p>
             )}
@@ -182,10 +193,10 @@ export default function StudentPromotion() {
           {!isGraduation && (
             <div>
               <label className="text-sm font-semibold text-slate-700">Target Year / Class</label>
-              <select value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
+              <Select value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="mt-1">
                 <option value="">-- Select Target --</option>
                 {promotionTargetOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              </Select>
               {selectedFromClass && !allowedTargetClassName && (
                 <p className="mt-2 text-xs text-slate-500">This class does not have an automatic promotion path configured.</p>
               )}
@@ -195,38 +206,39 @@ export default function StudentPromotion() {
           {!isGraduation && (
             <div>
               <label className="text-sm font-semibold text-slate-700">Target Academic Session</label>
-              <select value={targetSession} onChange={e => setTargetSession(e.target.value)} className="mt-1 w-full px-4 py-2 bg-slate-50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
+              <Select value={targetSession} onChange={e => setTargetSession(e.target.value)} className="mt-1">
                 {academicSessionOptions.map((session) => (
                   <option key={session} value={session}>{session}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
         </div>
 
-        <div className="border border-slate-100 rounded-xl overflow-hidden mt-6">
-          <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+        <TableContainer className="mt-6">
+          <TableToolbar>
             <span className="font-semibold text-slate-700">Select Students ({selectedStudents.length} selected)</span>
             <div className="flex flex-wrap gap-2">
               {!isGraduation && (
-                <button
+                <Button
+                  variant="outline"
                   onClick={handlePreview}
                   disabled={selectedStudents.length === 0}
-                  className="rounded-lg border border-indigo-200 bg-white px-4 py-2 font-bold text-indigo-700 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                 >
                   Preview Fees
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 onClick={handlePromote}
                 disabled={selectedStudents.length === 0}
-                className={`px-6 py-2 rounded-lg font-bold text-white transition-colors flex items-center gap-2 ${selectedStudents.length > 0 ? (isGraduation ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700') : 'bg-slate-300 cursor-not-allowed'}`}
+                className={isGraduation ? 'bg-amber-500 hover:bg-amber-600' : ''}
               >
                 <GraduationCap size={18} />
                 {isGraduation ? 'Graduate to Alumni' : 'Promote Students'}
-              </button>
+              </Button>
             </div>
-          </div>
+          </TableToolbar>
           {promotionPreview && !isGraduation && (
             <div className="border-b border-indigo-100 bg-indigo-50 p-4 text-sm">
               <div className="grid gap-3 md:grid-cols-4">
@@ -241,38 +253,36 @@ export default function StudentPromotion() {
               </p>
             </div>
           )}
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="px-6 py-3">
+          <Table>
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell>
                   <input type="checkbox" onChange={handleSelectAll} checked={eligibleStudents.length > 0 && selectedStudents.length === eligibleStudents.length} className="w-4 h-4 text-indigo-600 rounded" />
-                </th>
-                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student & Reg No</th>
-                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Year / Class</th>
-                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
-                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Session</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+                </TableHeaderCell>
+                <TableHeaderCell>Student & Reg No</TableHeaderCell>
+                <TableHeaderCell>Current Year / Class</TableHeaderCell>
+                <TableHeaderCell>Stream</TableHeaderCell>
+                <TableHeaderCell>Session</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {eligibleStudents.map(s => (
-                <tr key={s.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-3">
+                <TableRow key={s.id}>
+                  <TableCell>
                     <input type="checkbox" checked={selectedStudents.includes(s.id)} onChange={() => handleSelect(s.id)} className="w-4 h-4 text-indigo-600 rounded" />
-                  </td>
-                  <td className="px-6 py-3 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
-                  <td className="px-6 py-3 text-slate-700">{s.class_name}</td>
-                  <td className="px-6 py-3 text-slate-700">{s.stream}</td>
-                  <td className="px-6 py-3 text-slate-700">{s.session}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="font-medium text-slate-900">{s.name} <span className="ml-2 text-sm text-slate-500">{s.reg_no}</span></TableCell>
+                  <TableCell>{s.class_name}</TableCell>
+                  <TableCell>{s.stream}</TableCell>
+                  <TableCell>{s.session}</TableCell>
+                </TableRow>
               ))}
               {eligibleStudents.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No students found for this class.</td>
-                </tr>
+                <EmptyTableRow colSpan={5}>No students found for this class.</EmptyTableRow>
               )}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
       </div>
     </div>
   );

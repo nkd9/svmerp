@@ -3,6 +3,19 @@ import { AlertCircle, TrendingUp, Download, Search, ArrowRight, Printer } from '
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { printReport } from '../utils/print';
+import {
+  Button,
+  EmptyTableRow,
+  Input,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableToolbar,
+} from '../components/ui';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -224,20 +237,19 @@ export default function Reports() {
         </div>
       </div>
 
-      <div id="pending-due-list" className="scroll-mt-24 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-100 p-6 md:flex-row md:items-center md:justify-between">
+      <TableContainer id="pending-due-list" className="scroll-mt-24">
+        <TableToolbar className="flex-col items-stretch p-6 md:flex-row md:items-center">
           <h3 className="font-bold text-slate-900">Pending Due List</h3>
           <div className="relative w-full md:w-64">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
+            <Input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, reg no, class..."
-              className="w-full rounded-lg bg-slate-50 py-2 pl-10 pr-4 text-sm outline-none transition focus:ring-2 focus:ring-indigo-500"
+              leftIcon={<Search className="h-4 w-4" />}
             />
           </div>
-        </div>
+        </TableToolbar>
         <div className="grid gap-4 p-4 md:hidden">
           {filteredPendingFees.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center italic text-slate-400">
@@ -288,57 +300,55 @@ export default function Reports() {
           )}
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-6 py-4 font-semibold">Student</th>
-                <th className="px-6 py-4 font-semibold">Reg No</th>
-                <th className="px-6 py-4 font-semibold">Phone</th>
-                <th className="px-6 py-4 font-semibold">Class</th>
-                <th className="px-6 py-4 font-semibold">Total Amount</th>
-                <th className="px-6 py-4 font-semibold">Paid Amount</th>
-                <th className="px-6 py-4 font-semibold">Pending Amount</th>
-                <th className="px-6 py-4 text-right font-semibold">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+          <Table>
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Reg No</TableHeaderCell>
+                <TableHeaderCell>Phone</TableHeaderCell>
+                <TableHeaderCell>Class</TableHeaderCell>
+                <TableHeaderCell>Total Amount</TableHeaderCell>
+                <TableHeaderCell>Paid Amount</TableHeaderCell>
+                <TableHeaderCell>Pending Amount</TableHeaderCell>
+                <TableHeaderCell className="text-right">Action</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {filteredPendingFees.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center italic text-slate-400">
-                    No matching pending dues found.
-                  </td>
-                </tr>
+                <EmptyTableRow colSpan={8}>No matching pending dues found.</EmptyTableRow>
               ) : (
                 filteredPendingFees.map((item, idx) => (
-                  <tr key={`${item.reg_no}-${idx}`} className="transition-colors hover:bg-slate-50">
-                    <td className="px-6 py-4 text-sm font-semibold text-slate-900">{item.name}</td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{item.reg_no}</td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{item.phone || '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{item.class_name}</td>
-                    <td className="px-6 py-4 text-sm font-semibold text-slate-700">
+                  <TableRow key={`${item.reg_no}-${idx}`}>
+                    <TableCell className="font-semibold text-slate-900">{item.name}</TableCell>
+                    <TableCell>{item.reg_no}</TableCell>
+                    <TableCell>{item.phone || '-'}</TableCell>
+                    <TableCell>{item.class_name}</TableCell>
+                    <TableCell className="font-semibold text-slate-700">
                       {formatCurrency(Number(item.total_amount || 0))}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-semibold text-emerald-600">
+                    </TableCell>
+                    <TableCell className="font-semibold text-emerald-600">
                       {formatCurrency(Number(item.paid_amount || 0))}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-bold text-rose-600">
+                    </TableCell>
+                    <TableCell className="font-bold text-rose-600">
                       {formatCurrency(Number(item.pending_amount || 0))}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleSendReminder(item)}
-                        className="text-xs font-bold text-indigo-600 hover:underline"
+                        className="text-indigo-600"
                       >
                         Send Reminder
-                      </button>
-                    </td>
-                  </tr>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      </div>
+      </TableContainer>
     </div>
   );
 }

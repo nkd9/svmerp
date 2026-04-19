@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
 import { printReport } from '../utils/print';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../components/ui';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -52,6 +53,18 @@ type ReportRow = Record<string, string | number>;
 
 const TOTALABLE_AMOUNT_HEADERS = ['Total Amount', 'Paid Amount', 'Pending Amount', 'Amount'] as const;
 const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
+
+const getFeeCategory = (value?: string) => {
+  const type = String(value || '').toLowerCase();
+  if (type.includes('old due')) return 'old';
+  if (type.includes('admission')) return 'admission';
+  if (type.includes('coaching') || type.includes('tuition')) return 'coaching';
+  if (type.includes('transport')) return 'transport';
+  if (type.includes('entrance')) return 'entrance';
+  if (type.includes('food')) return 'fooding';
+  if (type.includes('hostel')) return 'hostel';
+  return 'other';
+};
 
 const isAmountHeader = (header: string) =>
   TOTALABLE_AMOUNT_HEADERS.includes(header as (typeof TOTALABLE_AMOUNT_HEADERS)[number]);
@@ -234,7 +247,7 @@ export default function FeeReports() {
     const rows = students
       .map((student) => {
         const paidAdmission = feesWithStudent
-          .filter((fee) => fee.student_id === student.id && fee.type === 'Admission Fee' && fee.status === 'paid')
+          .filter((fee) => fee.student_id === student.id && getFeeCategory(fee.type) === 'admission' && fee.status === 'paid')
           .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
         const expectedAdmission = student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0);
         const dueAmount = Math.max(expectedAdmission - paidAdmission, 0);
@@ -306,7 +319,9 @@ export default function FeeReports() {
         'Profile Admission Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0),
         'Profile Coaching Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_coaching_fee || 0) : Number(student.coaching_fee || 0),
         'Profile Transport Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_transport_fee || 0) : Number(student.transport_fee || 0),
+        'Profile Entrance Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_entrance_fee || 0) : Number(student.entrance_fee || 0),
         'Profile Fooding Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_fooding_fee || 0) : Number(student.fooding_fee || 0),
+        'Profile Hostel Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_hostel_fee || 0) : Number(student.hostel_fee || 0),
         'Fee Ledger': fee.type,
         Status: fee.status,
         'Total Amount': summary.total_amount,
@@ -489,14 +504,14 @@ export default function FeeReports() {
     const grouped = new Map<string, { paid: number; pending: number; total: number }>();
 
     feesWithStudent
-      .filter((fee) => String(fee.date || '').startsWith(monthlyFilters.year))
+      .filter((fee) => fee.status !== 'cancelled' && String(fee.date || '').startsWith(monthlyFilters.year))
       .forEach((fee) => {
         const monthKey = String(fee.date).slice(0, 7);
         const current = grouped.get(monthKey) || { paid: 0, pending: 0, total: 0 };
         current.total += Number(fee.amount || 0);
         if (fee.status === 'paid') {
           current.paid += Number(fee.amount || 0);
-        } else {
+        } else if (fee.status === 'pending') {
           current.pending += Number(fee.amount || 0);
         }
         grouped.set(monthKey, current);
@@ -948,32 +963,32 @@ export default function FeeReports() {
                           <div className="p-8 text-center text-slate-500">No transactions recorded for this student.</div>
                         ) : (
                           <div className="overflow-x-auto">
-                            <table className="w-full text-left whitespace-nowrap">
-                              <thead className="bg-slate-50/50">
-                                <tr className="border-b border-slate-100">
-                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Date</th>
-                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Bill No</th>
-                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Fee Ledger</th>
-                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500">Status</th>
-                                  <th className="px-6 py-3 text-xs font-semibold uppercase text-slate-500 text-right">Row Amount</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
+                            <Table className="whitespace-nowrap">
+                              <TableHead>
+                                <TableRow className="hover:bg-transparent">
+                                  <TableHeaderCell className="px-6 py-3">Date</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Bill No</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Fee Ledger</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Status</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3 text-right">Row Amount</TableHeaderCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
                                 {transactions.map((t, index) => (
-                                  <tr key={index} className="hover:bg-slate-50">
-                                    <td className="px-6 py-3 text-sm text-slate-700">{String(t['Date'])}</td>
-                                    <td className="px-6 py-3 text-sm font-mono text-slate-500">{String(t['Bill No'])}</td>
-                                    <td className="px-6 py-3 text-sm text-slate-700 font-medium">{String(t['Fee Ledger'])}</td>
-                                    <td className="px-6 py-3">
+                                  <TableRow key={index}>
+                                    <TableCell className="px-6 py-3">{String(t['Date'])}</TableCell>
+                                    <TableCell className="px-6 py-3 font-mono">{String(t['Bill No'])}</TableCell>
+                                    <TableCell className="px-6 py-3 font-medium text-slate-700">{String(t['Fee Ledger'])}</TableCell>
+                                    <TableCell className="px-6 py-3">
                                       <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${t['Status'] === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                                         {String(t['Status'])}
                                       </span>
-                                    </td>
-                                    <td className="px-6 py-3 text-sm font-bold text-slate-900 text-right">{formatCurrency(Number(t['Amount']))}</td>
-                                  </tr>
+                                    </TableCell>
+                                    <TableCell className="px-6 py-3 text-right font-bold text-slate-900">{formatCurrency(Number(t['Amount']))}</TableCell>
+                                  </TableRow>
                                 ))}
-                              </tbody>
-                            </table>
+                              </TableBody>
+                            </Table>
                           </div>
                         )}
                       </div>
@@ -981,32 +996,32 @@ export default function FeeReports() {
                   );
                 })()
               ) : (
-                <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-slate-100">
+                <Table>
+                  <TableHead className="sticky top-0 bg-white">
+                    <TableRow className="hover:bg-transparent">
                       {reportHeaders.map((header) => (
-                        <th key={header} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <TableHeaderCell key={header} className="px-6 py-4">
                           {header}
-                        </th>
+                        </TableHeaderCell>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {reportRows.map((row, index) => (
-                      <tr key={`${activeReportTitle}-${index}`} className="hover:bg-slate-50">
+                      <TableRow key={`${activeReportTitle}-${index}`}>
                         {reportHeaders.map((header) => (
-                          <td key={header} className="px-6 py-4 text-sm text-slate-700">
+                          <TableCell key={header} className="px-6 py-4 text-slate-700">
                             {isAmountHeader(header)
                               ? row[header] === '' || row[header] === undefined || row[header] === null
                                 ? '-'
                                 : formatCurrency(Number(row[header] || 0))
                               : String(row[header] ?? '-')}
-                          </td>
+                          </TableCell>
                         ))}
-                      </tr>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               )}
             </div>
           </div>

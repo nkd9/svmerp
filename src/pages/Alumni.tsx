@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Eye, Filter } from 'lucide-react';
 import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
+import {
+  Button,
+  EmptyTableRow,
+  Input,
+  PageHeader,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableToolbar,
+} from '../components/ui';
 
 interface Student {
   id: number;
@@ -47,69 +62,62 @@ export default function Alumni() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Alumni Directory</h1>
-        <p className="text-slate-500">View graduated students and manage their historical dues.</p>
-      </div>
+      <PageHeader title="Alumni Directory" description="View graduated students and manage their historical dues." />
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex gap-4 mb-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-            <input 
+      <TableContainer>
+        <TableToolbar className="flex-col items-stretch md:flex-row md:items-center">
+          <div className="flex-1">
+            <Input
               type="text"
               placeholder="Search alumni by name or reg no..."
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              leftIcon={<Search size={20} />}
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
-          <div>
-            <select 
+          <div className="w-full md:w-64">
+            <Select
               value={filterSession} 
               onChange={e => setFilterSession(e.target.value)}
-              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">All Sessions</option>
               {availableSessions.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            </Select>
           </div>
-        </div>
+        </TableToolbar>
 
-        <div className="border border-slate-100 rounded-xl overflow-hidden mt-6">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name & Reg No</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Graduation Session</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Phone</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHeaderCell>Name & Reg No</TableHeaderCell>
+                <TableHeaderCell>Stream</TableHeaderCell>
+                <TableHeaderCell>Graduation Session</TableHeaderCell>
+                <TableHeaderCell>Phone</TableHeaderCell>
+                <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {filteredAlumni.map(s => (
-                <tr key={s.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4 font-medium text-slate-900">{s.name} <span className="text-slate-500 text-sm ml-2">{s.reg_no}</span></td>
-                  <td className="px-6 py-4 text-slate-700">{s.stream}</td>
-                  <td className="px-6 py-4 text-slate-700">{convertLegacySessionLabel(s.session)}</td>
-                  <td className="px-6 py-4 text-slate-700">{s.phone}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="text-indigo-600 hover:text-indigo-800 text-sm font-semibold">
+                <TableRow key={s.id}>
+                  <TableCell className="font-medium text-slate-900">{s.name} <span className="ml-2 text-sm text-slate-500">{s.reg_no}</span></TableCell>
+                  <TableCell>{s.stream}</TableCell>
+                  <TableCell>{convertLegacySessionLabel(s.session)}</TableCell>
+                  <TableCell>{s.phone}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" className="text-indigo-600">
                       Account / Fees
-                    </button>
-                  </td>
-                </tr>
+                    </Button>
+                  </TableCell>
+                </TableRow>
               ))}
               {filteredAlumni.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">No alumni found.</td>
-                </tr>
+                <EmptyTableRow colSpan={5}>No alumni found.</EmptyTableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
-      </div>
+      </TableContainer>
     </div>
   );
 }

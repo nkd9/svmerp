@@ -83,6 +83,7 @@ function computeDynamicFees(student: any, feeStructures: any[]) {
   let transport_amount = 0;
   let entrance_amount = 0;
   let fooding_amount = 0;
+  let hostel_amount = 0;
 
   rules.forEach((r) => {
     const type = String(r.fee_type).toLowerCase();
@@ -91,6 +92,7 @@ function computeDynamicFees(student: any, feeStructures: any[]) {
     else if (type.includes("transport")) transport_amount += Number(r.amount) || 0;
     else if (type.includes("entrance")) entrance_amount += Number(r.amount) || 0;
     else if (type.includes("food")) fooding_amount += Number(r.amount) || 0;
+    else if (type.includes("hostel")) hostel_amount += Number(r.amount) || 0;
   });
 
   const hasAdmission = rules.some((r) => String(r.fee_type).toLowerCase().includes("admission"));
@@ -98,6 +100,7 @@ function computeDynamicFees(student: any, feeStructures: any[]) {
   const hasTransport = rules.some((r) => String(r.fee_type).toLowerCase().includes("transport"));
   const hasEntrance = rules.some((r) => String(r.fee_type).toLowerCase().includes("entrance"));
   const hasFooding = rules.some((r) => String(r.fee_type).toLowerCase().includes("food"));
+  const hasHostel = rules.some((r) => String(r.fee_type).toLowerCase().includes("hostel"));
 
   return {
     dynamic_admission_fee: hasAdmission ? admission_amount : Number(student.admission_fee || 0),
@@ -105,7 +108,121 @@ function computeDynamicFees(student: any, feeStructures: any[]) {
     dynamic_transport_fee: student.transport === "Yes" ? (hasTransport ? transport_amount : Number(student.transport_fee || 0)) : 0,
     dynamic_entrance_fee: student.entrance === "Yes" ? (hasEntrance ? entrance_amount : Number(student.entrance_fee || 0)) : 0,
     dynamic_fooding_fee: student.fooding === "Yes" ? (hasFooding ? fooding_amount : Number(student.fooding_fee || 0)) : 0,
+    dynamic_hostel_fee: student.hostel_required === "Yes" ? (hasHostel ? hostel_amount : Number(student.hostel_fee || 0)) : 0,
   };
+}
+
+type FeeCategory = "admission" | "coaching" | "transport" | "entrance" | "fooding" | "hostel" | "old" | "other";
+
+function getFeeCategory(value: unknown): FeeCategory {
+  const type = String(value || "").toLowerCase();
+  if (type.includes("old due")) return "old";
+  if (type.includes("admission")) return "admission";
+  if (type.includes("coaching") || type.includes("tuition")) return "coaching";
+  if (type.includes("transport")) return "transport";
+  if (type.includes("entrance")) return "entrance";
+  if (type.includes("food")) return "fooding";
+  if (type.includes("hostel")) return "hostel";
+  return "other";
+}
+
+function buildExpectedStudentFeeRows(student: any, feeStructures: any[]) {
+  const rules = feeStructures.filter(
+    (rule) =>
+      String(rule.academic_session || "") === String(student.session || "") &&
+      Number(rule.class_id || 0) === Number(student.class_id || 0) &&
+      String(rule.stream || "None") === String(student.stream || "None"),
+  );
+  const categoriesWithStructure = new Set<FeeCategory>();
+  const rows: Array<{ type: string; amount: number; category: FeeCategory }> = [];
+
+  for (const rule of rules) {
+    const category = getFeeCategory(rule.fee_type);
+    categoriesWithStructure.add(category);
+    rows.push({
+      type: String(rule.fee_type),
+      amount: Number(rule.amount || 0),
+      category,
+    });
+  }
+
+  const addFallback = (category: FeeCategory, type: string, amount: number, enabled = true) => {
+    if (!enabled || categoriesWithStructure.has(category) || amount <= 0) return;
+    rows.push({ type, amount, category });
+  };
+
+  addFallback("admission", "Admission Fee", Number(student.admission_fee || 0));
+  addFallback("coaching", "Coaching Fee", Number(student.coaching_fee || 0));
+  addFallback("transport", "Transport Fee", Number(student.transport_fee || 0), student.transport === "Yes");
+  addFallback("entrance", "Entrance Fee", Number(student.entrance_fee || 0), student.entrance === "Yes");
+  addFallback("fooding", "Fooding Fee", Number(student.fooding_fee || 0), student.fooding === "Yes");
+  addFallback("hostel", "Hostel Fee", Number(student.hostel_fee || 0), student.hostel_required === "Yes");
+
+  return rows;
+}
+
+async function syncExpectedPendingFeesForStudent(student: any) {
+  if (!student || student.status !== "active") return { createdCount: 0, updatedCount: 0, removedCount: 0 };
+
+  const feeStructures = await FeeStructure.find({
+    academic_session: student.session,
+    class_id: Number(student.class_id || 0),
+    stream: student.stream || "None",
+  }).lean();
+  const expectedRows = buildExpectedStudentFeeRows(student, feeStructures);
+  const expectedCategories = new Set(expectedRows.map((row) => row.category));
+  let createdCount = 0;
+  let updatedCount = 0;
+  let removedCount = 0;
+
+  for (const row of expectedRows) {
+    const existing = await Fee.findOne({
+      student_id: student.id,
+      academic_session: student.session,
+      class_id: student.class_id,
+      type: row.type,
+    }).lean();
+
+    if (!existing) {
+      const feeId = await getNextSequence("fees");
+      await Fee.create({
+        id: feeId,
+        student_id: student.id,
+        academic_session: student.session,
+        class_id: student.class_id,
+        amount: row.amount,
+        type: row.type,
+        date: dateString(),
+        status: "pending",
+        discount: 0,
+        mode: "System",
+        reference_no: "Auto-created from student fee setup",
+        bill_no: formatAppBillNo(feeId),
+      });
+      createdCount++;
+    } else if (existing.status === "pending" && Number(existing.amount || 0) !== row.amount) {
+      await Fee.updateOne({ id: existing.id }, { $set: { amount: row.amount } });
+      updatedCount++;
+    }
+  }
+
+  const knownCategories = new Set<FeeCategory>(["admission", "coaching", "transport", "entrance", "fooding", "hostel"]);
+  const pendingFees = await Fee.find({
+    student_id: student.id,
+    academic_session: student.session,
+    class_id: student.class_id,
+    status: "pending",
+  }).lean();
+
+  for (const fee of pendingFees) {
+    const category = getFeeCategory(fee.type);
+    if (knownCategories.has(category) && !expectedCategories.has(category)) {
+      await Fee.deleteOne({ id: fee.id });
+      removedCount++;
+    }
+  }
+
+  return { createdCount, updatedCount, removedCount };
 }
 
 function toNumber(value: unknown) {
@@ -248,6 +365,7 @@ async function buildStudentPayload(body: any, existingStatus?: string) {
     roll_no: body.roll_no || "",
     rfid_card_no: body.rfid_card_no || "",
     hostel_required: body.hostel_required || "No",
+    hostel_fee: toNumber(body.hostel_fee),
     student_aadhaar_no: body.student_aadhaar_no || "",
     mother_aadhaar_no: body.mother_aadhaar_no || "",
     father_aadhaar_no: body.father_aadhaar_no || "",
@@ -309,6 +427,28 @@ async function startServer() {
 
     next();
   };
+
+  async function verifyAdminPassword(req: any, res: any) {
+    const adminPassword = String(req.body.admin_password || "");
+    if (!adminPassword) {
+      res.status(400).json({ error: "Admin password is required for this sensitive action." });
+      return false;
+    }
+
+    const user = await User.findOne({ id: toNumber(req.user?.id), role: "admin" }).lean();
+    if (!user) {
+      res.status(403).json({ error: "Admin access required" });
+      return false;
+    }
+
+    const matches = await bcrypt.compare(adminPassword, user.password);
+    if (!matches) {
+      res.status(401).json({ error: "Admin password is incorrect." });
+      return false;
+    }
+
+    return true;
+  }
 
   async function writeAuditLog(req: any, input: {
     action: string;
@@ -642,6 +782,7 @@ async function startServer() {
       };
 
       const created = await Student.create(payload);
+      await syncExpectedPendingFeesForStudent(created.toObject());
       res.json({ id: created.id });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -673,6 +814,7 @@ async function startServer() {
         return res.status(404).json({ error: "Student not found" });
       }
 
+      await syncExpectedPendingFeesForStudent(updated);
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -717,10 +859,27 @@ async function startServer() {
         if (pendingFees.length !== pendingFeeIds.length) {
           return res.status(404).json({ error: "One or more pending fees could not be found." });
         }
+        if (pendingFees.length > 1) {
+          return res.status(400).json({ error: "Please collect one pending fee at a time." });
+        }
+
+        const selectedCategories = new Set(pendingFees.map((fee) => getFeeCategory(fee.type)));
+        if (selectedCategories.has("old") && pendingFees.length > 1) {
+          return res.status(400).json({ error: "Old dues must be cleared separately before any other payment." });
+        }
+        if (selectedCategories.has("admission") && pendingFees.length > 1) {
+          return res.status(400).json({ error: "Admission fee must be collected separately before other fees." });
+        }
 
         const totalPendingAmount = pendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
         if (paymentAmount <= 0 || paymentAmount > totalPendingAmount) {
           return res.status(400).json({ error: "Payment amount must be greater than 0 and cannot exceed the selected pending dues." });
+        }
+        if (paymentDiscount < 0 || paymentDiscount > totalPendingAmount) {
+          return res.status(400).json({ error: "Discount cannot be greater than the selected pending amount." });
+        }
+        if (paymentAmount + paymentDiscount !== totalPendingAmount) {
+          return res.status(400).json({ error: "Payment amount plus discount must match the selected pending fee." });
         }
 
         if (pendingFees.length > 1 && paymentDiscount > 0) {
@@ -735,6 +894,7 @@ async function startServer() {
         }).lean();
         const primaryClassName = classNameById.get(Number(primaryFee.class_id)) || "";
         const blockingOlderDue = otherPendingFees.find((fee) =>
+          getFeeCategory(fee.type) === "old" ||
           isOlderAcademicBucket(
             fee.academic_session,
             classNameById.get(Number(fee.class_id)) || "",
@@ -745,6 +905,11 @@ async function startServer() {
 
         if (blockingOlderDue) {
           return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
+        }
+
+        const blockingAdmissionFee = otherPendingFees.find((fee) => getFeeCategory(fee.type) === "admission");
+        if (blockingAdmissionFee && !selectedCategories.has("admission")) {
+          return res.status(400).json({ error: "Cannot accept this payment. Please collect the admission fee first." });
         }
 
         const updatedFee = await Fee.findOneAndUpdate(
@@ -809,37 +974,21 @@ async function startServer() {
         });
       }
 
-      const feeId = await getNextSequence("fees");
-      const currentSession = req.body.academic_session || "";
-      const currentClassId = toNumber(req.body.class_id) || 0;
-
-      // Check for pending older dues before accepting current payment
-      if (req.body.status !== "pending") {
-        const student = await Student.findOne({ id: toNumber(req.body.student_id) }).lean();
-        if (student) {
-          const currentClassName = classNameById.get(currentClassId) || student.class_name || "";
-          const oldDues = await Fee.find({
-            student_id: student.id,
-            status: "pending",
-          }).lean();
-          const hasBlockingOlderDue = oldDues.some((fee) =>
-            isOlderAcademicBucket(
-              fee.academic_session,
-              classNameById.get(Number(fee.class_id)) || "",
-              currentSession,
-              currentClassName,
-            ),
-          );
-
-          if (hasBlockingOlderDue) {
-            return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
-          }
-        }
+      if (paymentStatus !== "pending") {
+        return res.status(400).json({ error: "Payments must be collected against a pending fee row." });
       }
+
+      const feeId = await getNextSequence("fees");
+      const studentForPayment = await Student.findOne({ id: toNumber(req.body.student_id) }).lean();
+      if (!studentForPayment) {
+        return res.status(404).json({ error: "Student not found" });
+      }
+      const currentSession = req.body.academic_session || studentForPayment.session || "";
+      const currentClassId = toNumber(req.body.class_id) || Number(studentForPayment.class_id || 0);
 
       const payload = {
         id: feeId,
-        student_id: toNumber(req.body.student_id),
+        student_id: studentForPayment.id,
         academic_session: currentSession,
         class_id: currentClassId,
         amount: paymentAmount,
@@ -852,17 +1001,31 @@ async function startServer() {
         bill_no: String(req.body.bill_no || "").trim() || formatAppBillNo(feeId),
       };
 
-      const fee = await Fee.create(payload);
-      const transactionId = await getNextSequence("transactions");
-      await Transaction.create({
-        id: transactionId,
+      const duplicateFee = await Fee.findOne({
         student_id: payload.student_id,
-        amount: payload.amount,
-        type: "credit",
-        category: "fee",
-        date: payload.date,
-        description: `Fee payment: ${payload.type}${payload.mode ? ` (${payload.mode})` : ""}`,
-      });
+        academic_session: payload.academic_session,
+        class_id: payload.class_id,
+        type: payload.type,
+        status: { $in: ["paid", "pending"] },
+      }).lean();
+
+      if (duplicateFee) {
+        return res.status(400).json({ error: `${payload.type} already exists for this student. Please settle the pending row or use the existing receipt.` });
+      }
+
+      const fee = await Fee.create(payload);
+      if (payload.status === "paid") {
+        const transactionId = await getNextSequence("transactions");
+        await Transaction.create({
+          id: transactionId,
+          student_id: payload.student_id,
+          amount: payload.amount,
+          type: "credit",
+          category: "fee",
+          date: payload.date,
+          description: `Fee payment: ${payload.type}${payload.mode ? ` (${payload.mode})` : ""}`,
+        });
+      }
       await writeAuditLog(req, {
         action: "create_fee_payment",
         entity: "fee",
@@ -879,10 +1042,15 @@ async function startServer() {
 
   app.put("/api/fees/:id", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      if (!(await verifyAdminPassword(req, res))) return;
+
       const feeId = toNumber(req.params.id);
       const updatedAmount = toNumber(req.body.amount);
 
       const beforeFee = await Fee.findOne({ id: feeId }).lean();
+      if (beforeFee?.status === "paid") {
+        return res.status(400).json({ error: "Paid receipts cannot be edited. Cancel the payment first, then collect again." });
+      }
       const fee = await Fee.findOneAndUpdate(
         { id: feeId },
         { amount: updatedAmount },
@@ -1860,46 +2028,28 @@ async function startServer() {
 
       const students = await Student.find({
         status: "active",
+        session: academic_session,
         class_id: classId,
         stream,
       }).lean();
 
       let createdCount = 0;
+      let updatedCount = 0;
+      let removedCount = 0;
       for (const student of students) {
-        for (const struct of structures) {
-          // Check if pending fee already exists to prevent duplicate applying
-          const existing = await Fee.findOne({
-            student_id: student.id,
-            academic_session,
-            class_id: struct.class_id,
-            type: struct.fee_type,
-          }).lean();
-
-          if (!existing) {
-            const feeId = await getNextSequence("fees");
-            await Fee.create({
-              id: feeId,
-              student_id: student.id,
-              academic_session,
-              class_id: struct.class_id,
-              amount: struct.amount,
-              type: struct.fee_type,
-              date: dateString(),
-              status: "pending",
-              bill_no: formatAppBillNo(feeId),
-            });
-            createdCount++;
-          }
-        }
+        const result = await syncExpectedPendingFeesForStudent(student);
+        createdCount += result.createdCount;
+        updatedCount += result.updatedCount;
+        removedCount += result.removedCount;
       }
 
       await writeAuditLog(req, {
         action: "apply_fee_structure",
         entity: "fee",
         summary: `Applied fee structure and created ${createdCount} pending rows`,
-        after: { academic_session, class_id: classId, stream, created_count: createdCount },
+        after: { academic_session, class_id: classId, stream, created_count: createdCount, updated_count: updatedCount, removed_count: removedCount },
       });
-      res.json({ success: true, count: createdCount });
+      res.json({ success: true, count: createdCount, updated_count: updatedCount, removed_count: removedCount });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -2097,68 +2247,6 @@ async function startServer() {
     res.json(ledgers.map((item) => stripMongoFields(item)));
   });
 
-
-  app.post("/api/admin/fees/apply-structure", authenticateToken, requireAdmin, async (req, res) => {
-    try {
-      const { academic_session, class_id, stream } = req.body;
-      const numClassId = toNumber(class_id);
-
-      const rules = await FeeStructure.find({ academic_session, class_id: numClassId, stream }).lean();
-      if (rules.length === 0) {
-        return res.status(400).json({ error: "No fee structures defined for this batch/group." });
-      }
-
-      const students = await Student.find({
-        status: "active",
-        session: academic_session,
-        class_id: numClassId,
-        $or: [{ stream: stream }, { stream: { $exists: false } }, { stream: "" }]
-      }).lean();
-
-      if (students.length === 0) {
-        return res.status(400).json({ error: "No active students found in this batch/group." });
-      }
-
-      let count = 0;
-      const date = dateString();
-      for (const student of students) {
-        for (const rule of rules) {
-           const existing = await Fee.findOne({
-             student_id: student.id,
-             academic_session,
-             class_id: numClassId,
-             type: rule.fee_type
-           }).lean();
-           
-           if (!existing) {
-             const feeId = await getNextSequence("fees");
-             await Fee.create({
-               id: feeId,
-               student_id: student.id,
-               academic_session,
-               class_id: numClassId,
-               amount: rule.amount,
-               type: rule.fee_type,
-               date,
-               status: "pending",
-               bill_no: formatAppBillNo(feeId),
-             });
-             count++;
-           }
-        }
-      }
-      await writeAuditLog(req, {
-        action: "apply_fee_structure",
-        entity: "fee",
-        summary: `Applied fee structure and created ${count} pending rows`,
-        after: { academic_session, class_id: numClassId, stream, created_count: count },
-      });
-      res.json({ success: true, count });
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
   app.delete("/api/admin/students/:id", authenticateToken, requireAdmin, async (req, res) => {
     const studentId = toNumber(req.params.id);
     const student = await Student.findOneAndDelete({ id: studentId }).lean();
@@ -2188,37 +2276,84 @@ async function startServer() {
   });
 
   app.post("/api/admin/fees/:id/cancel", authenticateToken, requireAdmin, async (req, res) => {
-    const beforeFee = await Fee.findOne({ id: toNumber(req.params.id) }).lean();
-    const fee = await Fee.findOneAndUpdate(
-      { id: toNumber(req.params.id) },
-      { status: "cancelled" },
-      { returnDocument: "after" },
-    ).lean();
+    try {
+      if (!(await verifyAdminPassword(req, res))) return;
 
-    if (!fee) {
-      return res.status(404).json({ error: "Payment not found" });
+      const feeId = toNumber(req.params.id);
+      const beforeFee = await Fee.findOne({ id: feeId }).lean();
+      if (!beforeFee) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+      if (beforeFee.status !== "paid") {
+        return res.status(400).json({ error: "Only paid receipts can be cancelled." });
+      }
+
+      const restoredAmount = Number(beforeFee.amount || 0) + Number(beforeFee.discount || 0);
+      const fee = await Fee.findOneAndUpdate(
+        { id: feeId },
+        {
+          $set: {
+            amount: restoredAmount,
+            status: "pending",
+            discount: 0,
+            mode: "System",
+            reference_no: `Cancelled receipt on ${dateString()}${req.body.reason ? `: ${String(req.body.reason)}` : ""}`,
+          },
+        },
+        { returnDocument: "after" },
+      ).lean();
+
+      const transactionId = await getNextSequence("transactions");
+      await Transaction.create({
+        id: transactionId,
+        student_id: beforeFee.student_id,
+        amount: Number(beforeFee.amount || 0),
+        type: "debit",
+        category: "fee-cancel",
+        date: dateString(),
+        description: `Payment cancelled: ${beforeFee.type}${req.body.reason ? ` - ${String(req.body.reason)}` : ""}`,
+      });
+      await writeAuditLog(req, {
+        action: "cancel_fee",
+        entity: "fee",
+        entity_id: beforeFee.id,
+        summary: `Cancelled ${beforeFee.bill_no} and restored pending due`,
+        before: beforeFee,
+        after: fee,
+      });
+
+      res.json({ success: true, fee });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
     }
+  });
 
-    const transactionId = await getNextSequence("transactions");
-    await Transaction.create({
-      id: transactionId,
-      student_id: fee.student_id,
-      amount: fee.amount,
-      type: "debit",
-      category: "fee-cancel",
-      date: dateString(),
-      description: `Payment cancelled: ${fee.type}`,
-    });
-    await writeAuditLog(req, {
-      action: "cancel_fee",
-      entity: "fee",
-      entity_id: fee.id,
-      summary: `Cancelled ${fee.bill_no}`,
-      before: beforeFee,
-      after: fee,
-    });
+  app.delete("/api/admin/fees/:id", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      if (!(await verifyAdminPassword(req, res))) return;
 
-    res.json({ success: true });
+      const feeId = toNumber(req.params.id);
+      const fee = await Fee.findOne({ id: feeId }).lean();
+      if (!fee) {
+        return res.status(404).json({ error: "Payment not found" });
+      }
+      if (fee.status === "paid") {
+        return res.status(400).json({ error: "Cancel paid receipts before deleting them." });
+      }
+
+      await Fee.deleteOne({ id: feeId });
+      await writeAuditLog(req, {
+        action: "delete_fee",
+        entity: "fee",
+        entity_id: fee.id,
+        summary: `Deleted fee row ${fee.bill_no || fee.id}`,
+        before: fee,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   app.get("/api/admin/student-account", authenticateToken, requireAdmin, async (req, res) => {
