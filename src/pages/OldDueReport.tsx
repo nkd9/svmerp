@@ -7,6 +7,7 @@ import {
   Button,
   EmptyTableRow,
   Input,
+  MessageDialog,
   Pagination,
   Select,
   Table,
@@ -46,6 +47,7 @@ export default function OldDueReport() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState({ amount: '', admin_password: '' });
+  const [notice, setNotice] = useState<{ title: string; message: string; tone?: 'success' | 'error' | 'info' } | null>(null);
 
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payingFee, setPayingFee] = useState<any | null>(null);
@@ -96,21 +98,7 @@ export default function OldDueReport() {
   const filteredOldDues = useMemo(() => {
     let result = feesWithStudent.filter(fee => {
       if (fee.status !== 'pending') return false;
-      if (String(fee.type || '').toLowerCase().includes('old due')) return true;
-
-      const student = fee.student;
-      if (!student) return false;
-
-      const currentSession = student.session;
-      const feeSession = fee.academic_session;
-      const currentClassId = student.class_id;
-      const feeClassId = fee.class_id;
-
-      const isPastDue = 
-        (feeSession && currentSession && feeSession !== currentSession) || 
-        (feeClassId && currentClassId && Number(feeClassId) !== Number(currentClassId));
-
-      return isPastDue;
+      return String(fee.type || '').toLowerCase().includes('old due');
     });
 
     if (oldDueSession) {
@@ -145,11 +133,11 @@ export default function OldDueReport() {
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (user?.role !== 'admin' || !editingFee) {
-      alert('Only admin can modify financial information.');
+      setNotice({ title: 'Admin Required', message: 'Only admin can modify financial information.', tone: 'error' });
       return;
     }
     if (!editFormData.admin_password) {
-      alert('Admin password is required.');
+      setNotice({ title: 'Password Required', message: 'Admin password is required.', tone: 'error' });
       return;
     }
     
@@ -166,17 +154,17 @@ export default function OldDueReport() {
       setIsEditModalOpen(false);
       setEditingFee(null);
       fetchData();
-      alert('Fee updated successfully');
+      setNotice({ title: 'Fee Updated', message: 'Fee updated successfully.', tone: 'success' });
     } else {
       const data = await res.json();
-      alert(data.error || 'Failed to update fee');
+      setNotice({ title: 'Update Failed', message: data.error || 'Failed to update fee.', tone: 'error' });
     }
   };
 
   const handlePaySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (user?.role !== 'admin' || !payingFee) {
-      alert('Only admin can process payments.');
+      setNotice({ title: 'Admin Required', message: 'Only admin can process payments.', tone: 'error' });
       return;
     }
 
@@ -215,7 +203,7 @@ export default function OldDueReport() {
       fetchData();
     } else {
       const data = await res.json();
-      alert(data.error || 'Failed to process payment');
+      setNotice({ title: 'Payment Failed', message: data.error || 'Failed to process payment.', tone: 'error' });
     }
   };
 
@@ -240,10 +228,11 @@ export default function OldDueReport() {
   const handleDiscountChange = (discountValue: string) => {
     const discount = Number(discountValue || 0);
     const baseAmount = payingFee ? Number(payingFee.amount || 0) : 0;
-    const finalAmount = Math.max(baseAmount - discount, 0);
+    const safeDiscount = Math.min(Math.max(discount, 0), baseAmount);
+    const finalAmount = Math.max(baseAmount - safeDiscount, 0);
     setPayFormData(prev => ({
       ...prev,
-      discount: discountValue,
+      discount: String(safeDiscount),
       amount: String(finalAmount),
     }));
   };
@@ -264,7 +253,7 @@ export default function OldDueReport() {
         <div class="school-meta">Ph:9439326301, www.svmclasses.com</div>
 
         <div class="row spread">
-          <span><strong>Receipt No.:</strong> ${fee.id}</span>
+          <span><strong>Receipt No.:</strong> ${fee.bill_no || fee.id}</span>
           <span><strong>Date :</strong> ${receiptDate}</span>
         </div>
 
@@ -302,14 +291,14 @@ export default function OldDueReport() {
 
     const printWindow = window.open('', '_blank', 'width=1100,height=700');
     if (!printWindow) {
-      alert('Unable to open print window. Please allow pop-ups and try again.');
+      setNotice({ title: 'Print Blocked', message: 'Unable to open print window. Please allow pop-ups and try again.', tone: 'error' });
       return;
     }
 
     printWindow.document.write(`
       <html>
         <head>
-          <title>Receipt ${fee.id}</title>
+          <title>Receipt ${fee.bill_no || fee.id}</title>
           <style>
             body { margin: 0; padding: 20px; font-family: Arial, sans-serif; background: #fff; color: #111827; }
             .sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -340,7 +329,7 @@ export default function OldDueReport() {
 
   const handleExport = () => {
     if (!filteredOldDues.length) {
-      alert('No data available to export');
+      setNotice({ title: 'No Data', message: 'No data available to export.', tone: 'info' });
       return;
     }
 
@@ -348,7 +337,7 @@ export default function OldDueReport() {
       const studentClass = classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || '';
       const academicYear = convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || ''));
       return {
-        'Bill No': fee.bill_no,
+        'Receipt No': fee.bill_no,
         'Registration No': fee.student?.reg_no || '',
         'Student Name': fee.student?.name || '',
         'Phone Number': fee.student?.phone || '',
@@ -429,7 +418,7 @@ export default function OldDueReport() {
             <label className="mb-1 block text-sm font-semibold text-slate-700">Search</label>
               <Input
                 type="text"
-                placeholder="Search by student, reg no, or bill no..."
+                placeholder="Search by student, reg no, or receipt no..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 leftIcon={<Search className="h-4 w-4" />}
@@ -442,7 +431,7 @@ export default function OldDueReport() {
           <Table className="whitespace-nowrap">
             <TableHead>
               <TableRow className="hover:bg-transparent">
-                <TableHeaderCell>Bill No</TableHeaderCell>
+                <TableHeaderCell>Receipt No</TableHeaderCell>
                 <TableHeaderCell>Student</TableHeaderCell>
                 <TableHeaderCell>Class / Session</TableHeaderCell>
                 <TableHeaderCell>Fee Ledger</TableHeaderCell>
@@ -621,9 +610,9 @@ export default function OldDueReport() {
                       required
                       type="number"
                       min="0"
-                      className="w-full bg-white border border-emerald-200 rounded-lg py-3 pl-12 pr-4 text-emerald-900 font-black text-xl outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-inner"
+                      readOnly
+                      className="w-full cursor-not-allowed rounded-lg border border-emerald-200 bg-white py-3 pl-12 pr-4 text-xl font-black text-emerald-900 shadow-inner outline-none"
                       value={payFormData.amount}
-                      onChange={(e) => setPayFormData({ ...payFormData, amount: e.target.value })}
                     />
                   </div>
                 </div>
@@ -683,6 +672,15 @@ export default function OldDueReport() {
             </form>
           </div>
         </div>
+      )}
+
+      {notice && (
+        <MessageDialog
+          title={notice.title}
+          message={notice.message}
+          tone={notice.tone}
+          onClose={() => setNotice(null)}
+        />
       )}
     </div>
   );

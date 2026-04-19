@@ -7,6 +7,7 @@ import {
   Button,
   EmptyTableRow,
   Input,
+  MessageDialog,
   Modal,
   PageHeader,
   Pagination,
@@ -37,6 +38,18 @@ const getFeeSortTime = (fee: any) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const getFeeCategory = (value?: string) => {
+  const type = String(value || '').toLowerCase();
+  if (type.includes('old due')) return 'old';
+  if (type.includes('admission')) return 'admission';
+  if (type.includes('coaching') || type.includes('tuition')) return 'coaching';
+  if (type.includes('transport')) return 'transport';
+  if (type.includes('entrance')) return 'entrance';
+  if (type.includes('food')) return 'fooding';
+  if (type.includes('hostel')) return 'hostel';
+  return 'other';
+};
+
 export default function Fees() {
   const { user } = useAuth();
   const location = useLocation();
@@ -49,11 +62,19 @@ export default function Fees() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState({ amount: '', admin_password: '' });
+  const [notice, setNotice] = useState<{ title: string; message: string; tone?: 'success' | 'error' | 'info' } | null>(null);
+  const [sensitiveAction, setSensitiveAction] = useState<{
+    type: 'cancel' | 'delete';
+    fee: any;
+    reason: string;
+    admin_password: string;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedPendingFeeId, setSelectedPendingFeeId] = useState('');
+  const [selectedPendingFeeIds, setSelectedPendingFeeIds] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     student_id: '',
     amount: '',
@@ -63,6 +84,7 @@ export default function Fees() {
     discount: '0',
     mode: 'Cash',
     reference_no: '',
+    remark: '',
     bill_no: ''
   });
 
@@ -84,8 +106,10 @@ export default function Fees() {
       fetch('/api/students', { headers }),
       fetch('/api/fee-ledgers', { headers })
     ]);
-    setFees(await feesRes.json());
-    setStudents(await studentsRes.json());
+    const feesData = await feesRes.json();
+    const studentsData = await studentsRes.json();
+    setFees(feesData);
+    setStudents(studentsData);
     if (ledgersRes.ok) {
       const ledgersData = await ledgersRes.json();
       setLedgers(ledgersData);
@@ -93,17 +117,27 @@ export default function Fees() {
         setFormData(prev => ({ ...prev, type: ledgersData[0].name }));
       }
     }
+    return { fees: feesData, students: studentsData };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (user?.role !== 'admin') {
-      alert('Only admin can modify financial information.');
+      setNotice({ title: 'Admin Required', message: 'Only admin can modify financial information.', tone: 'error' });
       return;
     }
-    const selectedPendingFee = fees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
-    if (!selectedPendingFee) {
-      alert('Please select a pending fee row. Payments must be collected against the student fee setup.');
+    const isOtherFeePayment = formData.type === 'Other Fee';
+    const selectedPendingFees = fees.filter((fee) => selectedPendingFeeIds.includes(String(fee.id)));
+    if (!isOtherFeePayment && selectedPendingFees.length === 0) {
+      setNotice({ title: 'Select Pending Fee', message: 'Please select a pending fee row. Payments must be collected against the student fee setup.', tone: 'error' });
+      return;
+    }
+    if (isOtherFeePayment && Number(formData.amount || 0) <= 0) {
+      setNotice({ title: 'Enter Amount', message: 'Please enter other fee amount.', tone: 'error' });
+      return;
+    }
+    if (isOtherFeePayment && !formData.remark.trim()) {
+      setNotice({ title: 'Remark Required', message: 'Please enter a remark for other fee.', tone: 'error' });
       return;
     }
     const res = await fetch('/api/fees', {
@@ -114,12 +148,12 @@ export default function Fees() {
       },
       body: JSON.stringify({
         ...formData,
-        pending_fee_ids: selectedPendingFee ? [selectedPendingFee.id] : [],
+        pending_fee_ids: selectedPendingFees.map((fee) => fee.id),
       })
     });
     if (res.ok) {
       const createdFee = await res.json();
-      const printableFee = createdFee.fee || {
+      const printableFee = createdFee.fee || createdFee.fees?.[0] || {
         id: createdFee.id,
         student_id: Number(formData.student_id),
         student_name: selectedStudent?.name || '',
@@ -129,6 +163,7 @@ export default function Fees() {
         status: formData.status,
         mode: formData.mode,
         reference_no: formData.reference_no,
+        remark: formData.remark,
         bill_no: createdFee.fee?.bill_no || formData.bill_no,
       };
 
@@ -137,26 +172,27 @@ export default function Fees() {
       fetchData();
       setStudentSearch('');
       setSelectedPendingFeeId('');
+      setSelectedPendingFeeIds([]);
       setFormData({
         student_id: '', amount: '', type: ledgers[0]?.name || 'Admission Fee',
         date: format(new Date(), 'yyyy-MM-dd'), status: 'paid',
-        discount: '0', mode: 'Cash', reference_no: '',
+        discount: '0', mode: 'Cash', reference_no: '', remark: '',
         bill_no: ''
       });
     } else {
       const errorData = await res.json();
-      alert(errorData.error || 'Check failed. Payment could not be processed.');
+      setNotice({ title: 'Payment Blocked', message: errorData.error || 'Check failed. Payment could not be processed.', tone: 'error' });
     }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (user?.role !== 'admin' || !editingFee) {
-      alert('Only admin can modify financial information.');
+      setNotice({ title: 'Admin Required', message: 'Only admin can modify financial information.', tone: 'error' });
       return;
     }
     if (!editFormData.admin_password) {
-      alert('Admin password is required.');
+      setNotice({ title: 'Password Required', message: 'Admin password is required.', tone: 'error' });
       return;
     }
     
@@ -173,10 +209,10 @@ export default function Fees() {
       setIsEditModalOpen(false);
       setEditingFee(null);
       fetchData();
-      alert('Fee updated successfully');
+      setNotice({ title: 'Fee Updated', message: 'Fee updated successfully.', tone: 'success' });
     } else {
       const data = await res.json();
-      alert(data.error || 'Failed to update fee');
+      setNotice({ title: 'Update Failed', message: data.error || 'Failed to update fee.', tone: 'error' });
     }
   };
 
@@ -186,70 +222,61 @@ export default function Fees() {
     setIsEditModalOpen(true);
   };
 
-  const askAdminPassword = () => {
-    const password = window.prompt('Enter admin password to continue');
-    return password?.trim() || '';
-  };
-
   const handleCancelPayment = async (fee: any) => {
     if (user?.role !== 'admin') {
-      alert('Only admin can cancel payments.');
+      setNotice({ title: 'Admin Required', message: 'Only admin can cancel payments.', tone: 'error' });
       return;
     }
     if (fee.status !== 'paid') {
-      alert('Only paid receipts can be cancelled.');
+      setNotice({ title: 'Cannot Cancel', message: 'Only paid receipts can be cancelled.', tone: 'error' });
       return;
     }
-    const reason = window.prompt('Reason for cancelling this payment?') || '';
-    const adminPassword = askAdminPassword();
-    if (!adminPassword) return;
-
-    const res = await fetch(`/api/admin/fees/${fee.id}/cancel`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ admin_password: adminPassword, reason })
-    });
-
-    if (res.ok) {
-      fetchData();
-      alert('Payment cancelled and due restored.');
-    } else {
-      const data = await res.json();
-      alert(data.error || 'Failed to cancel payment');
-    }
+    setSensitiveAction({ type: 'cancel', fee, reason: '', admin_password: '' });
   };
 
   const handleDeletePayment = async (fee: any) => {
     if (user?.role !== 'admin') {
-      alert('Only admin can delete fee rows.');
+      setNotice({ title: 'Admin Required', message: 'Only admin can delete fee rows.', tone: 'error' });
       return;
     }
     if (fee.status === 'paid') {
-      alert('Cancel paid receipts before deleting them.');
+      setNotice({ title: 'Cancel First', message: 'Cancel paid receipts before deleting them.', tone: 'error' });
       return;
     }
-    if (!window.confirm(`Delete fee row ${fee.bill_no || fee.id}? This cannot be undone.`)) return;
-    const adminPassword = askAdminPassword();
-    if (!adminPassword) return;
+    setSensitiveAction({ type: 'delete', fee, reason: '', admin_password: '' });
+  };
 
-    const res = await fetch(`/api/admin/fees/${fee.id}`, {
-      method: 'DELETE',
+  const handleSensitiveActionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sensitiveAction?.admin_password) {
+      setNotice({ title: 'Password Required', message: 'Admin password is required.', tone: 'error' });
+      return;
+    }
+
+    const isCancel = sensitiveAction.type === 'cancel';
+    const res = await fetch(isCancel ? `/api/admin/fees/${sensitiveAction.fee.id}/cancel` : `/api/admin/fees/${sensitiveAction.fee.id}`, {
+      method: isCancel ? 'POST' : 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify({ admin_password: adminPassword })
+      body: JSON.stringify({
+        admin_password: sensitiveAction.admin_password,
+        reason: sensitiveAction.reason,
+      })
     });
 
     if (res.ok) {
+      setSensitiveAction(null);
       fetchData();
-      alert('Fee row deleted.');
+      setNotice({
+        title: isCancel ? 'Payment Cancelled' : 'Fee Row Deleted',
+        message: isCancel ? 'Payment cancelled and due restored.' : 'Fee row deleted.',
+        tone: 'success',
+      });
     } else {
       const data = await res.json();
-      alert(data.error || 'Failed to delete fee row');
+      setNotice({ title: isCancel ? 'Cancel Failed' : 'Delete Failed', message: data.error || (isCancel ? 'Failed to cancel payment.' : 'Failed to delete fee row.'), tone: 'error' });
     }
   };
 
@@ -302,19 +329,21 @@ export default function Fees() {
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     : [];
   const selectedPendingFee = selectedStudentPendingFees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
-  const blockingOldDue = selectedStudentPendingFees.find(fee => {
-    if (String(fee.type || '').toLowerCase().includes('old due')) return true;
-    if (!fee.student_id || !selectedStudent) return false;
-    
-    const feeSession = fee.academic_session;
-    const currentSession = selectedStudent.session;
-    const feeClassId = fee.class_id;
-    const currentClassId = selectedStudent.class_id;
-    
-    return (feeSession && currentSession && feeSession !== currentSession) || 
-           (feeClassId && currentClassId && Number(feeClassId) !== Number(currentClassId));
-  });
-  const blockingAdmissionFee = selectedStudentPendingFees.find(fee => String(fee.type || '').toLowerCase().includes('admission'));
+  const selectedPendingFees = selectedStudentPendingFees.filter((fee) => selectedPendingFeeIds.includes(String(fee.id)));
+  const selectedPendingAmount = selectedPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+  const blockingOldDue = selectedStudentPendingFees.find(fee => getFeeCategory(fee.type) === 'old');
+  const blockingAdmissionFee = selectedStudentPendingFees.find(fee => getFeeCategory(fee.type) === 'admission');
+  const canCollectOtherFee = Boolean(selectedStudent && !blockingOldDue && !blockingAdmissionFee);
+  const isOtherFeeSelected = formData.type === 'Other Fee';
+  const allowedPendingFees = blockingAdmissionFee
+    ? selectedStudentPendingFees.filter((fee) => fee.id === blockingAdmissionFee.id)
+    : selectedStudentPendingFees;
+  const feeLedgerOptions: Array<{ id: number | string; name: string }> = selectedStudent
+    ? [
+        ...Array.from(new Map<string, { id: number | string; name: string }>(allowedPendingFees.map((fee) => [String(fee.type || ''), { id: fee.id, name: String(fee.type || '') }])).values()).filter((ledger) => ledger.name),
+        ...(canCollectOtherFee ? [{ id: 'other-fee', name: 'Other Fee' }] : []),
+      ]
+    : ledgers;
   const matchingStudents = students.filter((student) => {
     if (!studentSearch.trim()) {
       return true;
@@ -358,48 +387,50 @@ export default function Fees() {
   const profileStudentPendingTotal = profileStudentPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
   const profileStudentPaidTotal = profileStudentPaidFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
 
-  const handleStudentSelect = (studentId: string) => {
-    const student = students.find((item) => String(item.id) === studentId);
-    const pendingFeesForStudent = fees
+  const selectStudentWithFees = (studentId: string, feesSource: any[], studentsSource: any[]) => {
+    const student = studentsSource.find((item) => String(item.id) === studentId);
+    const pendingFeesForStudent = feesSource
       .filter((fee) => fee.student_id === student?.id && fee.status === 'pending')
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const firstPendingFee = pendingFeesForStudent[0];
-    const totalFee = !student ? 0 : (() => {
-      const d = student.dynamic_fees;
-      if (d) {
-        return Number(d.dynamic_admission_fee || 0) + Number(d.dynamic_coaching_fee || 0) + Number(d.dynamic_transport_fee || 0) + Number(d.dynamic_entrance_fee || 0) + Number(d.dynamic_fooding_fee || 0) + Number(d.dynamic_hostel_fee || 0);
-      }
-      return Number(student.admission_fee || 0) +
-        Number(student.coaching_fee || 0) +
-        Number(student.transport_fee || 0) +
-        Number(student.entrance_fee || 0) +
-        Number(student.fooding_fee || 0) +
-        Number(student.hostel_fee || 0);
-    })();
-    const paidAmount = student
-      ? fees
-          .filter((fee) => fee.student_id === student.id && fee.status === 'paid')
-          .reduce((sum, fee) => sum + Number(fee.amount || 0), 0)
-      : 0;
-    const dueAmount = Math.max(totalFee - paidAmount, 0);
-
     const pendingAdmission = pendingFeesForStudent.find(fee => String(fee.type || '').toLowerCase().includes('admission'));
     const initialFee = pendingAdmission || firstPendingFee;
     
     setSelectedPendingFeeId(initialFee ? String(initialFee.id) : '');
+    setSelectedPendingFeeIds(initialFee ? [String(initialFee.id)] : []);
     setFormData({
       ...formData,
       student_id: studentId,
       discount: '0',
-      amount: initialFee ? String(initialFee.amount || 0) : dueAmount ? String(dueAmount) : '',
-      type: initialFee?.type || formData.type,
+      amount: initialFee ? String(initialFee.amount || 0) : '',
+      type: initialFee?.type || '',
       reference_no: '',
+      remark: '',
     });
     setStudentSearch(student ? `${student.name} (${student.reg_no})` : '');
   };
 
+  const handleStudentSelect = async (studentId: string) => {
+    selectStudentWithFees(studentId, fees, students);
+
+    if (user?.role === 'admin') {
+      const syncRes = await fetch(`/api/admin/students/${studentId}/sync-fees`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+      });
+
+      if (syncRes.ok) {
+        const freshData = await fetchData();
+        if (freshData) {
+          selectStudentWithFees(studentId, freshData.fees, freshData.students);
+        }
+      }
+    }
+  };
+
   const handlePendingFeeChange = (feeId: string) => {
     setSelectedPendingFeeId(feeId);
+    setSelectedPendingFeeIds(feeId ? [feeId] : []);
     const fee = selectedStudentPendingFees.find((item) => String(item.id) === feeId);
     if (!fee) return;
 
@@ -411,18 +442,88 @@ export default function Fees() {
     }));
   };
 
+  const updateSelectedPendingFees = (feeIds: string[]) => {
+    const pendingRows = selectedStudentPendingFees.filter((fee) => feeIds.includes(String(fee.id)));
+    const firstFee = pendingRows[0] || null;
+    const total = pendingRows.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+
+    setSelectedPendingFeeId(firstFee ? String(firstFee.id) : '');
+    setSelectedPendingFeeIds(feeIds);
+    setFormData((prev) => ({
+      ...prev,
+      type: pendingRows.length > 1 ? 'Fee Collection' : firstFee?.type || '',
+      discount: '0',
+      amount: total ? String(total) : '',
+    }));
+  };
+
+  const togglePendingFee = (fee: any) => {
+    const feeId = String(fee.id);
+    const category = getFeeCategory(fee.type);
+    if (category === 'old' || category === 'admission' || blockingAdmissionFee) {
+      handlePendingFeeChange(feeId);
+      return;
+    }
+
+    const nextIds = selectedPendingFeeIds.includes(feeId)
+      ? selectedPendingFeeIds.filter((id) => id !== feeId)
+      : [...selectedPendingFeeIds, feeId];
+    updateSelectedPendingFees(nextIds);
+  };
+
+  const handleFeeLedgerChange = (feeType: string) => {
+    const matchingPendingFee = allowedPendingFees.find((fee) => String(fee.type || '') === feeType);
+    if (matchingPendingFee) {
+      handlePendingFeeChange(String(matchingPendingFee.id));
+      return;
+    }
+
+    if (feeType === 'Other Fee') {
+      setSelectedPendingFeeId('');
+      setSelectedPendingFeeIds([]);
+      setFormData((prev) => ({
+        ...prev,
+        type: 'Other Fee',
+        discount: '0',
+        amount: '',
+        remark: '',
+      }));
+      return;
+    }
+
+    setSelectedPendingFeeId('');
+    setSelectedPendingFeeIds([]);
+    setFormData((prev) => ({
+      ...prev,
+      type: feeType,
+      discount: '0',
+      amount: '',
+      remark: '',
+    }));
+  };
+
   const openStudentProfile = (studentId: number) => {
     const student = students.find((item) => item.id === studentId) || null;
     setProfileStudent(student);
   };
 
   const handleDiscountChange = (discountValue: string) => {
+    if (!selectedPendingFee || isOtherFeeSelected) {
+      setFormData({
+        ...formData,
+        discount: '0',
+        amount: '',
+      });
+      return;
+    }
+
     const discount = Number(discountValue || 0);
-    const baseAmount = selectedPendingFee ? Number(selectedPendingFee.amount || 0) : selectedStudentDueAmount;
-    const finalAmount = Math.max(baseAmount - discount, 0);
+    const baseAmount = selectedPendingFees.length > 1 ? selectedPendingAmount : Number(selectedPendingFee.amount || 0);
+    const safeDiscount = Math.min(Math.max(discount, 0), baseAmount);
+    const finalAmount = Math.max(baseAmount - safeDiscount, 0);
     setFormData({
       ...formData,
-      discount: discountValue,
+      discount: String(safeDiscount),
       amount: selectedStudent ? String(finalAmount) : formData.amount,
     });
   };
@@ -433,6 +534,7 @@ export default function Fees() {
     const particulars = fee.type === 'Fee Collection' ? 'Fee' : fee.type;
     const paidBy = fee.mode || 'Cash';
     const referenceNo = fee.reference_no ? `<div class="footer-note">Reference No.: ${fee.reference_no}</div>` : '';
+    const remark = fee.remark ? `<div class="footer-note">Remark: ${fee.remark}</div>` : '';
     const amount = Number(fee.amount || 0);
 
     const receiptHtml = `
@@ -443,7 +545,7 @@ export default function Fees() {
         <div class="school-meta">Ph:9439326301, www.svmclasses.com</div>
 
         <div class="row spread">
-          <span><strong>Receipt No.:</strong> ${fee.id}</span>
+          <span><strong>Receipt No.:</strong> ${fee.bill_no || fee.id}</span>
           <span><strong>Date :</strong> ${receiptDate}</span>
         </div>
 
@@ -476,19 +578,20 @@ export default function Fees() {
 
         <div class="footer-note">All fees listed above are final and non-refundable once paid</div>
         ${referenceNo}
+        ${remark}
       </div>
     `;
 
     const printWindow = window.open('', '_blank', 'width=1100,height=700');
     if (!printWindow) {
-      alert('Unable to open print window. Please allow pop-ups and try again.');
+      setNotice({ title: 'Print Blocked', message: 'Unable to open print window. Please allow pop-ups and try again.', tone: 'error' });
       return;
     }
 
     printWindow.document.write(`
       <html>
         <head>
-          <title>Receipt ${fee.id}</title>
+          <title>Receipt ${fee.bill_no || fee.id}</title>
           <style>
             body {
               margin: 0;
@@ -622,7 +725,7 @@ export default function Fees() {
           <Table>
             <TableHead>
               <TableRow className="hover:bg-transparent">
-                <TableHeaderCell>Bill No</TableHeaderCell>
+                <TableHeaderCell>Receipt No</TableHeaderCell>
                 <TableHeaderCell>Student</TableHeaderCell>
                 <TableHeaderCell>Fee Type</TableHeaderCell>
                 <TableHeaderCell>Amount</TableHeaderCell>
@@ -759,12 +862,14 @@ export default function Fees() {
                       onChange={(e) => {
                         setStudentSearch(e.target.value);
                         setSelectedPendingFeeId('');
+                        setSelectedPendingFeeIds([]);
                         setFormData({
                           ...formData,
                           student_id: '',
                           discount: '0',
                           amount: '',
                           reference_no: '',
+                          remark: '',
                         });
                       }}
                     />
@@ -826,12 +931,16 @@ export default function Fees() {
                   <select
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    disabled={Boolean(selectedPendingFee)}
+                    onChange={(e) => handleFeeLedgerChange(e.target.value)}
+                    disabled={Boolean(blockingOldDue) || !selectedStudent || (allowedPendingFees.length === 0 && !canCollectOtherFee)}
                   >
-                    {ledgers.map(l => (
-                      <option key={l.id} value={l.name}>{l.name}</option>
-                    ))}
+                    {selectedStudent && feeLedgerOptions.length === 0 ? (
+                      <option value="">No payable pending fee</option>
+                    ) : (
+                      feeLedgerOptions.map(l => (
+                        <option key={l.id} value={l.name}>{l.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -865,7 +974,7 @@ export default function Fees() {
                   <label className="text-sm font-semibold text-slate-700">Due Amount</label>
                   <input
                     readOnly
-                    value={selectedStudent ? String(selectedPendingFee ? selectedPendingFee.amount : selectedStudentPendingTotal || selectedStudentDueAmount) : ''}
+                    value={selectedStudent ? String(selectedPendingFees.length ? selectedPendingAmount : selectedStudentPendingTotal) : ''}
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-slate-700"
                   />
                 </div>
@@ -890,26 +999,48 @@ export default function Fees() {
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-4">
                 <div className="space-y-2 xl:col-span-4">
                   <label className="text-sm font-semibold text-slate-700">Pending Fee To Settle</label>
-                  <select
-                    value={selectedPendingFeeId}
-                    onChange={(e) => handlePendingFeeChange(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    disabled={Boolean(blockingOldDue) || !selectedStudent || selectedStudentPendingFees.length === 0}
-                  >
-                    {selectedStudentPendingFees.length === 0 ? (
-                      <option value="">No pending fee rows for this student</option>
-                    ) : (
-                      selectedStudentPendingFees.map((fee) => (
-                        <option 
-                          key={fee.id} 
-                          value={fee.id}
-                          disabled={Boolean(blockingAdmissionFee) && fee.id !== blockingAdmissionFee?.id}
-                        >
-                          {fee.type} - {formatCurrency(Number(fee.amount || 0))} - {fee.bill_no}
-                        </option>
-                      ))
-                    )}
-                  </select>
+                  {isOtherFeeSelected ? (
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-800">
+                      Other Fee is a direct receipt. Enter amount and remark below.
+                    </div>
+                  ) : allowedPendingFees.length === 0 ? (
+                    <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-500">
+                      No pending fee rows for this student
+                    </div>
+                  ) : (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {allowedPendingFees.map((fee) => {
+                        const feeId = String(fee.id);
+                        const checked = selectedPendingFeeIds.includes(feeId);
+                        const category = getFeeCategory(fee.type);
+                        const singleOnly = category === 'admission' || category === 'old' || Boolean(blockingAdmissionFee);
+                        return (
+                          <label
+                            key={fee.id}
+                            className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${
+                              checked ? 'border-indigo-300 bg-indigo-50 text-indigo-900' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
+                            }`}
+                          >
+                            <input
+                              type={singleOnly ? 'radio' : 'checkbox'}
+                              name="pending_fee_to_settle"
+                              checked={checked}
+                              disabled={Boolean(blockingOldDue) || !selectedStudent}
+                              onChange={() => togglePendingFee(fee)}
+                              className="h-4 w-4 accent-indigo-600"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-bold">{fee.type}</span>
+                              <span className="block text-xs text-slate-500">{fee.bill_no} - {formatCurrency(Number(fee.amount || 0))}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {allowedPendingFees.length > 1 && !blockingAdmissionFee && !blockingOldDue && (
+                    <p className="text-xs font-medium text-slate-500">You can select multiple regular fee ledgers in one receipt after admission fee is cleared.</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-700">Discount</label>
@@ -919,7 +1050,14 @@ export default function Fees() {
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
                     value={formData.discount}
                     onChange={(e) => handleDiscountChange(e.target.value)}
+                    disabled={selectedPendingFees.length > 1 || isOtherFeeSelected}
                   />
+                  {isOtherFeeSelected && (
+                    <p className="text-xs text-slate-500">Discount is not used for direct other fee receipts.</p>
+                  )}
+                  {selectedPendingFees.length > 1 && (
+                    <p className="text-xs text-slate-500">Discount is available only when settling one fee ledger.</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-700">Fee</label>
@@ -929,7 +1067,8 @@ export default function Fees() {
                       required
                       type="number"
                       min="0"
-                      className="w-full bg-slate-50 border-none rounded-xl py-2.5 pl-11 pr-4 text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                      readOnly={!isOtherFeeSelected}
+                      className={`w-full rounded-xl border-none py-2.5 pl-11 pr-4 text-slate-700 outline-none disabled:opacity-50 ${isOtherFeeSelected ? 'bg-slate-50 focus:ring-2 focus:ring-indigo-500' : 'cursor-not-allowed bg-slate-100'}`}
                       value={formData.amount}
                       onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                       disabled={Boolean(blockingOldDue)}
@@ -958,6 +1097,18 @@ export default function Fees() {
                     onChange={(e) => setFormData({ ...formData, reference_no: e.target.value })}
                   />
                 </div>
+                {isOtherFeeSelected && (
+                  <div className="space-y-2 xl:col-span-4">
+                    <label className="text-sm font-semibold text-slate-700">Remark <span className="text-rose-500">*</span></label>
+                    <textarea
+                      required
+                      className="min-h-24 w-full rounded-xl border-none bg-slate-50 px-4 py-3 text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={formData.remark}
+                      onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
+                      placeholder="Example: ID card fine, extra form fee, special material charge"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,320px)_1fr] md:items-end">
@@ -975,7 +1126,8 @@ export default function Fees() {
                   disabled={
                     Boolean(blockingOldDue) ||
                     !selectedStudent ||
-                    !selectedPendingFee ||
+                    (!isOtherFeeSelected && selectedPendingFees.length === 0) ||
+                    (isOtherFeeSelected && (!formData.amount || !formData.remark.trim())) ||
                     (Boolean(blockingAdmissionFee) && selectedPendingFee?.id !== blockingAdmissionFee?.id)
                   }
                   className="w-full px-6 py-3 font-bold"
@@ -996,7 +1148,7 @@ export default function Fees() {
                   <span className="font-semibold text-slate-900">{editingFee.student_name}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Bill No:</span>
+                  <span className="text-slate-500">Receipt No:</span>
                   <span className="font-semibold text-slate-900">{editingFee.bill_no}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -1040,6 +1192,63 @@ export default function Fees() {
               </div>
             </form>
         </Modal>
+      )}
+
+      {sensitiveAction && (
+        <Modal
+          title={sensitiveAction.type === 'cancel' ? 'Cancel Payment' : 'Delete Fee Row'}
+          onClose={() => setSensitiveAction(null)}
+          className="max-w-md"
+        >
+          <form onSubmit={handleSensitiveActionSubmit} className="space-y-5 p-6">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-bold">{sensitiveAction.fee.student_name}</p>
+              <p className="mt-1">{sensitiveAction.fee.type} - {sensitiveAction.fee.bill_no || sensitiveAction.fee.id}</p>
+              <p className="mt-2">
+                {sensitiveAction.type === 'cancel'
+                  ? 'This will cancel the paid receipt and restore the due amount.'
+                  : 'This will permanently delete this pending/cancelled fee row.'}
+              </p>
+            </div>
+            {sensitiveAction.type === 'cancel' && (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Reason</label>
+                <textarea
+                  className="min-h-24 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={sensitiveAction.reason}
+                  onChange={(e) => setSensitiveAction((current) => current ? { ...current, reason: e.target.value } : current)}
+                  placeholder="Why is this payment being cancelled?"
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Admin Password</label>
+              <input
+                required
+                type="password"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                value={sensitiveAction.admin_password}
+                onChange={(e) => setSensitiveAction((current) => current ? { ...current, admin_password: e.target.value } : current)}
+                placeholder="Confirm admin password"
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setSensitiveAction(null)}>Close</Button>
+              <Button type="submit" variant={sensitiveAction.type === 'cancel' ? 'danger' : 'danger'}>
+                {sensitiveAction.type === 'cancel' ? 'Cancel Payment' : 'Delete Row'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {notice && (
+        <MessageDialog
+          title={notice.title}
+          message={notice.message}
+          tone={notice.tone}
+          onClose={() => setNotice(null)}
+        />
       )}
 
       {profileStudent && (
@@ -1109,7 +1318,7 @@ export default function Fees() {
                         <TableHead className="bg-white">
                           <TableRow className="hover:bg-transparent">
                             <TableHeaderCell className="px-5 py-3">Ledger</TableHeaderCell>
-                            <TableHeaderCell className="px-5 py-3">Bill No</TableHeaderCell>
+                            <TableHeaderCell className="px-5 py-3">Receipt No</TableHeaderCell>
                             <TableHeaderCell className="px-5 py-3 text-right">Amount</TableHeaderCell>
                           </TableRow>
                         </TableHead>

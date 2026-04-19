@@ -1,6 +1,7 @@
 export * from './Button';
 export * from './Card';
 export * from './Input';
+export * from './MessageDialog';
 export * from './Modal';
 export * from './PageHeader';
 export * from './Select';

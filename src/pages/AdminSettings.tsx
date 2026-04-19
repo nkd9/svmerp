@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw, WalletCards, GraduationCap, Archive, CalendarDays, BookOpen, Download, ShieldCheck, Activity, ClipboardCheck } from 'lucide-react';
+import { Search, Settings, UserPlus, Layers3, ReceiptIndianRupee, Trash2, RefreshCw, WalletCards, GraduationCap, Archive, CalendarDays, BookOpen, Download, ShieldCheck, ClipboardCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../components/ui';
 
@@ -82,15 +82,6 @@ type FeeSetupDraft = {
   fooding_fee: number;
 };
 
-type AuditLog = {
-  id: number;
-  username: string;
-  action: string;
-  entity: string;
-  summary: string;
-  timestamp: string;
-};
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
@@ -121,7 +112,6 @@ export default function AdminSettings() {
   const [isFeeSetupModalOpen, setIsFeeSetupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [healthReport, setHealthReport] = useState<any | null>(null);
   const [reconciliationRows, setReconciliationRows] = useState<any[]>([]);
 
@@ -166,12 +156,6 @@ export default function AdminSettings() {
     if (ledgersRes.ok) setLedgers(await ledgersRes.json());
     if (sessionsRes.ok) setSessions(await sessionsRes.json());
     if (streamsRes.ok) setStreams(await streamsRes.json());
-    fetchAuditLogs();
-  };
-
-  const fetchAuditLogs = async () => {
-    const res = await fetch('/api/admin/audit-logs?limit=20', { headers: authHeaders });
-    if (res.ok) setAuditLogs(await res.json());
   };
 
   const runHealthCheck = async () => {
@@ -207,7 +191,6 @@ export default function AdminSettings() {
     link.download = `svm-erp-backup-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    fetchAuditLogs();
   };
 
   const createUser = async (e: FormEvent) => {
@@ -545,11 +528,11 @@ export default function AdminSettings() {
           </div>
           <div>
             <h2 className="font-bold text-slate-900">Production Safety Tools</h2>
-            <p className="text-sm text-slate-500">Backup, data health, reconciliation, and audit tools for safer daily operation.</p>
+            <p className="text-sm text-slate-500">Backup, data health, and reconciliation tools for safer daily operation.</p>
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-4">
+        <div className="grid gap-4 lg:grid-cols-3">
           <button onClick={exportBackup} className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-left transition hover:bg-indigo-100">
             <Download className="mb-3 h-5 w-5 text-indigo-700" />
             <p className="font-bold text-slate-900">Export Backup</p>
@@ -564,11 +547,6 @@ export default function AdminSettings() {
             <ReceiptIndianRupee className="mb-3 h-5 w-5 text-amber-700" />
             <p className="font-bold text-slate-900">Fee Reconciliation</p>
             <p className="mt-1 text-xs text-slate-500">Compare structure total, paid, pending, discount, and balance.</p>
-          </button>
-          <button onClick={fetchAuditLogs} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:bg-slate-100">
-            <Activity className="mb-3 h-5 w-5 text-slate-700" />
-            <p className="font-bold text-slate-900">Refresh Audit Log</p>
-            <p className="mt-1 text-xs text-slate-500">Review recent admin actions and money changes.</p>
           </button>
         </div>
 
@@ -620,19 +598,6 @@ export default function AdminSettings() {
             </div>
           </div>
         )}
-
-        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <h3 className="font-bold text-slate-900">Recent Audit Log</h3>
-          <div className="mt-3 space-y-2">
-            {auditLogs.length === 0 && <p className="text-sm text-slate-500">No audit log entries yet.</p>}
-            {auditLogs.map((log) => (
-              <div key={log.id} className="rounded-xl bg-white px-4 py-3 text-sm">
-                <p className="font-semibold text-slate-900">{log.summary || `${log.action} ${log.entity}`}</p>
-                <p className="text-xs text-slate-500">{log.username || 'system'} • {log.action} • {new Date(log.timestamp).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
 
       <div className="grid gap-6 md:grid-cols-3">

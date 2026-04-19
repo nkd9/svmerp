@@ -27,6 +27,7 @@ import {
   AcademicSessionMaster,
   StreamMaster,
   AuditLog,
+  Counter,
   getNextSequence,
 } from "./server/models.ts";
 
@@ -61,8 +62,24 @@ function dateString(date = new Date()) {
   return date.toISOString().split("T")[0];
 }
 
-function formatAppBillNo(feeId: number) {
-  return `SVM-${String(feeId).padStart(6, "0")}`;
+function formatDueBillNo(feeId: number) {
+  return `DUE-${String(feeId).padStart(6, "0")}`;
+}
+
+function parseReceiptSerial(value: unknown) {
+  const match = /(\d+)$/.exec(String(value || "").trim());
+  return match ? Number(match[1]) : 0;
+}
+
+async function getNextReceiptBillNo() {
+  const existingReceipts = await Fee.find({ status: { $in: ["paid", "cancelled"] } }, { bill_no: 1 }).lean();
+  const maxExisting = existingReceipts.reduce((max, fee) => Math.max(max, parseReceiptSerial(fee.bill_no)), 0);
+  const existingCounter = await Counter.findOne({ name: "feeReceipts" }).lean();
+  if (!existingCounter || Number(existingCounter.seq || 0) < maxExisting) {
+    await Counter.updateOne({ name: "feeReceipts" }, { $set: { seq: maxExisting } }, { upsert: true });
+  }
+  const counter: any = await Counter.findOneAndUpdate({ name: "feeReceipts" }, { $inc: { seq: 1 } }, { returnDocument: "after", upsert: true });
+  return String(counter.seq);
 }
 
 function summarizeChangedFields(before: Record<string, any> | null | undefined, after: Record<string, any> | null | undefined) {
@@ -176,33 +193,56 @@ async function syncExpectedPendingFeesForStudent(student: any) {
   let removedCount = 0;
 
   for (const row of expectedRows) {
-    const existing = await Fee.findOne({
+    const existingRows = await Fee.find({
       student_id: student.id,
       academic_session: student.session,
       class_id: student.class_id,
       type: row.type,
     }).lean();
+    const activeRows = existingRows.filter((fee) => fee.status !== "cancelled");
+    const paidSettledAmount = activeRows
+      .filter((fee) => fee.status === "paid")
+      .reduce((sum, fee) => sum + Number(fee.amount || 0) + Number(fee.discount || 0), 0);
+    const pendingRows = activeRows.filter((fee) => fee.status === "pending");
+    const remainingAmount = Math.max(row.amount - paidSettledAmount, 0);
 
-    if (!existing) {
+    if (remainingAmount <= 0) {
+      if (pendingRows.length > 0) {
+        await Fee.deleteMany({ id: { $in: pendingRows.map((fee) => fee.id) } });
+        removedCount += pendingRows.length;
+      }
+      continue;
+    }
+
+    if (pendingRows.length === 0) {
       const feeId = await getNextSequence("fees");
       await Fee.create({
         id: feeId,
         student_id: student.id,
         academic_session: student.session,
         class_id: student.class_id,
-        amount: row.amount,
+        amount: remainingAmount,
         type: row.type,
         date: dateString(),
         status: "pending",
         discount: 0,
         mode: "System",
         reference_no: "Auto-created from student fee setup",
-        bill_no: formatAppBillNo(feeId),
+        bill_no: formatDueBillNo(feeId),
       });
       createdCount++;
-    } else if (existing.status === "pending" && Number(existing.amount || 0) !== row.amount) {
-      await Fee.updateOne({ id: existing.id }, { $set: { amount: row.amount } });
-      updatedCount++;
+    } else {
+      const primaryPending = pendingRows[0];
+      if (Number(primaryPending.amount || 0) !== remainingAmount) {
+        await Fee.updateOne({ id: primaryPending.id }, { $set: { amount: remainingAmount } });
+        updatedCount++;
+      }
+
+      const duplicatePendingRows = pendingRows.slice(1);
+      if (duplicatePendingRows.length > 0) {
+        await Fee.deleteMany({ id: { $in: duplicatePendingRows.map((fee) => fee.id) } });
+        removedCount += duplicatePendingRows.length;
+      }
     }
   }
 
@@ -235,8 +275,18 @@ function normalizeAcademicClassName(value: unknown) {
 }
 
 function getAcademicSessionStartYear(value: unknown) {
-  const match = /^(\d{4})-\d{4}$/.exec(String(value || "").trim());
+  const match = /^(\d{4})-(?:\d{2}|\d{4})$/.exec(String(value || "").trim());
   return match ? Number(match[1]) : 0;
+}
+
+function academicSessionsEquivalent(left: unknown, right: unknown) {
+  const leftYear = getAcademicSessionStartYear(left);
+  const rightYear = getAcademicSessionStartYear(right);
+  if (leftYear && rightYear) {
+    return leftYear === rightYear;
+  }
+
+  return String(left || "").trim() === String(right || "").trim();
 }
 
 function getCollegeYearRank(className: unknown) {
@@ -716,7 +766,7 @@ async function startServer() {
 
   app.get("/api/stats", authenticateToken, async (_req, res) => {
     const today = dateString();
-    const [totalStudents, activeStudents, todayFeesAgg, pendingFeesAgg, hostelStudents, recentTransactions, students, classes] =
+    const [totalStudents, activeStudents, todayFeesAgg, pendingFeesAgg, hostelStudents, recentReceipts, students, classes] =
       await Promise.all([
         Student.countDocuments(),
         Student.countDocuments({ status: "active" }),
@@ -729,7 +779,7 @@ async function startServer() {
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
         HostelAllotment.countDocuments(),
-        Transaction.find().sort({ date: -1, id: -1 }).limit(5).lean(),
+        Fee.find({ status: { $in: ["paid", "cancelled"] } }).sort({ date: -1, id: -1 }).limit(5).lean(),
         Student.find().lean(),
         ClassModel.find().lean(),
       ]);
@@ -743,14 +793,15 @@ async function startServer() {
       todayFees: todayFeesAgg[0]?.total || 0,
       pendingFees: pendingFeesAgg[0]?.total || 0,
       hostelStudents,
-      recentTransactions: recentTransactions.map((item) => {
+      recentTransactions: recentReceipts.map((item) => {
         const student = studentMap.get(item.student_id);
         return {
           ...stripMongoFields(item),
+          receipt_no: item.bill_no || "",
           student_name: student?.name || "Unknown Student",
           phone: student?.phone || "",
           class_name: classMap.get(student?.class_id) || "",
-          fee_type: typeof item.description === "string" ? item.description.split(" - ")[0] : "",
+          fee_type: item.type || "",
         };
       }),
     });
@@ -821,14 +872,65 @@ async function startServer() {
     }
   });
 
+  app.post("/api/admin/students/:id/sync-fees", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const student = await Student.findOne({ id: toNumber(req.params.id) }).lean();
+      if (!student) {
+        return res.status(404).json({ error: "Student not found" });
+      }
+
+      const result = await syncExpectedPendingFeesForStudent(student);
+      await writeAuditLog(req, {
+        action: "sync_student_fee_rows",
+        entity: "student",
+        entity_id: student.id,
+        summary: `Synced fee rows for ${student.reg_no || student.id}`,
+        after: result,
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/fees/sync-active-students", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const students = await Student.find({ status: "active" }).lean();
+      let createdCount = 0;
+      let updatedCount = 0;
+      let removedCount = 0;
+
+      for (const student of students) {
+        const result = await syncExpectedPendingFeesForStudent(student);
+        createdCount += result.createdCount;
+        updatedCount += result.updatedCount;
+        removedCount += result.removedCount;
+      }
+
+      await writeAuditLog(req, {
+        action: "sync_all_active_student_fee_rows",
+        entity: "fee",
+        summary: `Synced fee rows for ${students.length} active students`,
+        after: { students: students.length, created_count: createdCount, updated_count: updatedCount, removed_count: removedCount },
+      });
+
+      res.json({ success: true, students: students.length, created_count: createdCount, updated_count: updatedCount, removed_count: removedCount });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get("/api/fees", authenticateToken, async (_req, res) => {
-    const [fees, students] = await Promise.all([Fee.find().sort({ id: -1 }).lean(), Student.find().lean()]);
+    const [fees, students, classes] = await Promise.all([Fee.find().sort({ id: -1 }).lean(), Student.find().lean(), ClassModel.find().lean()]);
     const studentMap = new Map(students.map((item) => [item.id, item.name]));
+    const classMap = new Map(classes.map((item) => [Number(item.id), String(item.name || "")]));
 
     res.json(
       fees.map((fee) => ({
         ...stripMongoFields(fee),
         student_name: studentMap.get(fee.student_id) || "Unknown Student",
+        class_name: classMap.get(Number(fee.class_id)) || "",
       })),
     );
   });
@@ -844,13 +946,13 @@ async function startServer() {
       const paymentDate = req.body.date || dateString();
       const paymentMode = req.body.mode || "Cash";
       const paymentReference = req.body.reference_no || "";
+      const paymentRemark = String(req.body.remark || "").trim();
       const paymentDiscount = toNumber(req.body.discount);
       const paymentAmount = toNumber(req.body.amount);
 
       if (pendingFeeIds.length > 0 && paymentStatus !== "pending") {
         const pendingFees = await Fee.find({
           id: { $in: pendingFeeIds },
-          student_id: toNumber(req.body.student_id),
           status: "pending",
         })
           .sort({ id: 1 })
@@ -859,8 +961,15 @@ async function startServer() {
         if (pendingFees.length !== pendingFeeIds.length) {
           return res.status(404).json({ error: "One or more pending fees could not be found." });
         }
-        if (pendingFees.length > 1) {
-          return res.status(400).json({ error: "Please collect one pending fee at a time." });
+
+        const primaryFee = pendingFees[0];
+        const selectedStudentIds = new Set(pendingFees.map((fee) => Number(fee.student_id)));
+        if (selectedStudentIds.size !== 1) {
+          return res.status(400).json({ error: "All selected pending fees must belong to the same student." });
+        }
+        const requestStudentId = toNumber(req.body.student_id);
+        if (requestStudentId && Number(primaryFee.student_id) !== requestStudentId) {
+          return res.status(400).json({ error: "Selected pending fee does not belong to this student." });
         }
 
         const selectedCategories = new Set(pendingFees.map((fee) => getFeeCategory(fee.type)));
@@ -869,6 +978,9 @@ async function startServer() {
         }
         if (selectedCategories.has("admission") && pendingFees.length > 1) {
           return res.status(400).json({ error: "Admission fee must be collected separately before other fees." });
+        }
+        if (pendingFees.length > 1 && pendingFees.some((fee) => getFeeCategory(fee.type) === "other")) {
+          return res.status(400).json({ error: "Please collect custom or unknown fee ledgers one at a time." });
         }
 
         const totalPendingAmount = pendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
@@ -886,102 +998,135 @@ async function startServer() {
           return res.status(400).json({ error: "Discount can only be applied when settling one pending fee at a time." });
         }
 
-        const primaryFee = pendingFees[0];
         const otherPendingFees = await Fee.find({
-          student_id: toNumber(req.body.student_id),
+          student_id: Number(primaryFee.student_id),
           status: "pending",
           id: { $nin: pendingFeeIds },
         }).lean();
         const primaryClassName = classNameById.get(Number(primaryFee.class_id)) || "";
-        const blockingOlderDue = otherPendingFees.find((fee) =>
-          getFeeCategory(fee.type) === "old" ||
-          isOlderAcademicBucket(
-            fee.academic_session,
-            classNameById.get(Number(fee.class_id)) || "",
-            primaryFee.academic_session,
-            primaryClassName,
-          ),
-        );
+        const paymentStudent = await Student.findOne({ id: Number(primaryFee.student_id) }).lean();
+        if (!paymentStudent) {
+          return res.status(404).json({ error: "Student not found" });
+        }
+        const studentCurrentClassName = classNameById.get(Number(paymentStudent.class_id)) || "";
+        const primaryIsOldDue = selectedCategories.has("old");
 
-        if (blockingOlderDue) {
-          return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
+        if (!primaryIsOldDue) {
+          const blockingOlderDue = otherPendingFees.find((fee) =>
+            getFeeCategory(fee.type) === "old",
+          );
+
+          if (blockingOlderDue) {
+            return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
+          }
+
+          const blockingAdmissionFee = otherPendingFees.find((fee) => getFeeCategory(fee.type) === "admission");
+          if (blockingAdmissionFee && !selectedCategories.has("admission")) {
+            return res.status(400).json({ error: "Cannot accept this payment. Please collect the admission fee first." });
+          }
         }
 
-        const blockingAdmissionFee = otherPendingFees.find((fee) => getFeeCategory(fee.type) === "admission");
-        if (blockingAdmissionFee && !selectedCategories.has("admission")) {
-          return res.status(400).json({ error: "Cannot accept this payment. Please collect the admission fee first." });
-        }
+        const receiptBillNo = await getNextReceiptBillNo();
+        let updatedFees: any[] = [];
 
-        const updatedFee = await Fee.findOneAndUpdate(
-          { id: primaryFee.id },
-          {
-            $set: {
-              amount: paymentAmount,
-              date: paymentDate,
-              status: paymentStatus,
-              discount: paymentDiscount,
-              mode: paymentMode,
-              reference_no: paymentReference,
+        if (pendingFees.length === 1) {
+          const updatedFee = await Fee.findOneAndUpdate(
+            { id: primaryFee.id },
+            {
+              $set: {
+                amount: paymentAmount,
+                date: paymentDate,
+                status: paymentStatus,
+                discount: paymentDiscount,
+                mode: paymentMode,
+                reference_no: paymentReference,
+                bill_no: receiptBillNo,
+              },
             },
-          },
-          { returnDocument: "after" },
-        ).lean();
+            { returnDocument: "after" },
+          ).lean();
 
-        if (!updatedFee) {
-          return res.status(404).json({ error: "Pending fee could not be updated." });
-        }
-
-        if (pendingFees.length > 1) {
-          const remainingIds = pendingFees.slice(1).map((fee) => fee.id);
+          if (!updatedFee) {
+            return res.status(404).json({ error: "Pending fee could not be updated." });
+          }
+          updatedFees = [updatedFee];
+        } else {
           await Fee.updateMany(
-            { id: { $in: remainingIds } },
+            { id: { $in: pendingFeeIds } },
             {
               $set: {
                 date: paymentDate,
                 status: paymentStatus,
+                discount: 0,
                 mode: paymentMode,
                 reference_no: paymentReference,
+                bill_no: receiptBillNo,
               },
             },
           );
+          updatedFees = await Fee.find({ id: { $in: pendingFeeIds } }).sort({ id: 1 }).lean();
         }
 
+        const primaryUpdatedFee = updatedFees[0];
         const transactionId = await getNextSequence("transactions");
         await Transaction.create({
           id: transactionId,
-          student_id: updatedFee.student_id,
+          student_id: primaryUpdatedFee.student_id,
           amount: paymentAmount,
           type: "credit",
           category: "fee",
           date: paymentDate,
-          description: `Pending fee settled: ${updatedFee.type}${paymentMode ? ` (${paymentMode})` : ""}`,
+          description: `Pending fee settled: ${updatedFees.map((fee) => fee.type).join(", ")}${paymentMode ? ` (${paymentMode})` : ""}`,
         });
         await writeAuditLog(req, {
           action: "settle_pending_fee",
           entity: "fee",
-          entity_id: updatedFee.id,
-          summary: `Settled ${updatedFee.type} for student ${updatedFee.student_id}`,
-          before: primaryFee,
-          after: updatedFee,
+          entity_id: primaryUpdatedFee.id,
+          summary: `Settled ${updatedFees.length} fee row(s) for student ${primaryUpdatedFee.student_id}`,
+          before: pendingFees,
+          after: updatedFees,
         });
 
+        const studentName = (await Student.findOne({ id: primaryUpdatedFee.student_id }).lean())?.name || "Unknown Student";
         return res.json({
-          id: updatedFee.id,
+          id: primaryUpdatedFee.id,
           fee: {
-            ...stripMongoFields(updatedFee),
-            student_name: (await Student.findOne({ id: updatedFee.student_id }).lean())?.name || "Unknown Student",
+            ...stripMongoFields(primaryUpdatedFee),
+            amount: paymentAmount,
+            type: updatedFees.length > 1 ? "Fee Collection" : primaryUpdatedFee.type,
+            student_name: studentName,
           },
+          fees: updatedFees.map((fee) => ({ ...stripMongoFields(fee), student_name: studentName })),
         });
-      }
-
-      if (paymentStatus !== "pending") {
-        return res.status(400).json({ error: "Payments must be collected against a pending fee row." });
       }
 
       const feeId = await getNextSequence("fees");
       const studentForPayment = await Student.findOne({ id: toNumber(req.body.student_id) }).lean();
       if (!studentForPayment) {
         return res.status(404).json({ error: "Student not found" });
+      }
+      const requestedFeeType = String(req.body.type || "Fee Collection").trim();
+      const isOtherFeePayment = getFeeCategory(requestedFeeType) === "other" && requestedFeeType.toLowerCase().includes("other");
+      if (paymentStatus !== "pending" && !isOtherFeePayment) {
+        return res.status(400).json({ error: "Payments must be collected against a pending fee row." });
+      }
+      if (isOtherFeePayment) {
+        if (paymentAmount <= 0) {
+          return res.status(400).json({ error: "Other fee amount must be greater than 0." });
+        }
+        if (!paymentRemark) {
+          return res.status(400).json({ error: "Remark is required for other fee." });
+        }
+
+        const pendingFees = await Fee.find({ student_id: studentForPayment.id, status: "pending" }).lean();
+        const blockingFee = pendingFees.find((fee) => ["old", "admission"].includes(getFeeCategory(fee.type)));
+        if (blockingFee) {
+          return res.status(400).json({
+            error: getFeeCategory(blockingFee.type) === "old"
+              ? "Cannot accept other fee. Please clear old dues first."
+              : "Cannot accept other fee. Please collect the admission fee first.",
+          });
+        }
       }
       const currentSession = req.body.academic_session || studentForPayment.session || "";
       const currentClassId = toNumber(req.body.class_id) || Number(studentForPayment.class_id || 0);
@@ -992,22 +1137,25 @@ async function startServer() {
         academic_session: currentSession,
         class_id: currentClassId,
         amount: paymentAmount,
-        type: req.body.type || "Fee Collection",
+        type: requestedFeeType || "Fee Collection",
         date: paymentDate,
         status: paymentStatus,
         discount: paymentDiscount,
         mode: paymentMode,
         reference_no: paymentReference,
-        bill_no: String(req.body.bill_no || "").trim() || formatAppBillNo(feeId),
+        remark: paymentRemark,
+        bill_no: paymentStatus === "paid" ? await getNextReceiptBillNo() : String(req.body.bill_no || "").trim() || formatDueBillNo(feeId),
       };
 
-      const duplicateFee = await Fee.findOne({
-        student_id: payload.student_id,
-        academic_session: payload.academic_session,
-        class_id: payload.class_id,
-        type: payload.type,
-        status: { $in: ["paid", "pending"] },
-      }).lean();
+      const duplicateFee = isOtherFeePayment
+        ? null
+        : await Fee.findOne({
+            student_id: payload.student_id,
+            academic_session: payload.academic_session,
+            class_id: payload.class_id,
+            type: payload.type,
+            status: { $in: ["paid", "pending"] },
+          }).lean();
 
       if (duplicateFee) {
         return res.status(400).json({ error: `${payload.type} already exists for this student. Please settle the pending row or use the existing receipt.` });
@@ -1023,7 +1171,7 @@ async function startServer() {
           type: "credit",
           category: "fee",
           date: payload.date,
-          description: `Fee payment: ${payload.type}${payload.mode ? ` (${payload.mode})` : ""}`,
+          description: `Fee payment: ${payload.type}${paymentRemark ? ` - ${paymentRemark}` : ""}${payload.mode ? ` (${payload.mode})` : ""}`,
         });
       }
       await writeAuditLog(req, {
@@ -1034,7 +1182,7 @@ async function startServer() {
         after: fee.toObject(),
       });
 
-      res.json({ id: fee.id });
+      res.json({ id: fee.id, fee: { ...stripMongoFields(fee.toObject()), student_name: studentForPayment.name || "Unknown Student" } });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -1997,7 +2145,7 @@ async function startServer() {
           discount: 0,
           mode: "System",
           reference_no: "Auto-created after promotion",
-          bill_no: formatAppBillNo(feeId),
+          bill_no: formatDueBillNo(feeId),
         });
         createdCount++;
       }
@@ -2425,6 +2573,7 @@ async function startServer() {
 
   await connectToDatabase();
   console.log("Connected to MongoDB successfully");
+  await Fee.collection.dropIndex("bill_no_1").catch(() => undefined);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

@@ -156,7 +156,7 @@ export default function Dashboard() {
           <Table>
             <TableHead>
               <TableRow className="hover:bg-transparent">
-                <TableHeaderCell>Receipt / Txn</TableHeaderCell>
+                <TableHeaderCell>Receipt No</TableHeaderCell>
                 <TableHeaderCell>Student</TableHeaderCell>
                 <TableHeaderCell>Phone</TableHeaderCell>
                 <TableHeaderCell>Class</TableHeaderCell>
@@ -171,7 +171,7 @@ export default function Dashboard() {
               ) : (
                 stats.recentTransactions.map((tx: any) => (
                   <TableRow key={tx.id}>
-                    <TableCell className="font-semibold text-slate-900">TX-{tx.id}</TableCell>
+                    <TableCell className="font-semibold text-slate-900">{tx.receipt_no || '-'}</TableCell>
                     <TableCell className="font-medium text-slate-900">{tx.student_name}</TableCell>
                     <TableCell>{tx.phone || '-'}</TableCell>
                     <TableCell>{tx.class_name || '-'}</TableCell>

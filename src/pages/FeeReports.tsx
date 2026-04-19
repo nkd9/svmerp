@@ -4,14 +4,14 @@ import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
 import { printReport } from '../utils/print';
-import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../components/ui';
+import { MessageDialog, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../components/ui';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
-const downloadExcelFile = (rows: Array<Record<string, string | number>>, fileName: string) => {
+const downloadExcelFile = (rows: Array<Record<string, string | number>>, fileName: string, onEmpty: () => void) => {
   if (!rows.length) {
-    alert('No data available to export');
+    onEmpty();
     return;
   }
 
@@ -66,6 +66,13 @@ const getFeeCategory = (value?: string) => {
   return 'other';
 };
 
+const getAcademicYearGroup = (className?: string) => {
+  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  if (/\b(XI|1ST YEAR|FIRST YEAR)\b/.test(normalized)) return '1st Year';
+  if (/\b(XII|2ND YEAR|SECOND YEAR)\b/.test(normalized)) return '2nd Year';
+  return 'Other';
+};
+
 const isAmountHeader = (header: string) =>
   TOTALABLE_AMOUNT_HEADERS.includes(header as (typeof TOTALABLE_AMOUNT_HEADERS)[number]);
 
@@ -81,7 +88,7 @@ const appendTotalsRow = (rows: ReportRow[]) => {
   }
 
   const labelHeader =
-    headers.find((header) => /student name|name|month|date|bill no/i.test(header)) ||
+    headers.find((header) => /student name|name|month|date|receipt no/i.test(header)) ||
     headers[0];
 
   const totalRow = headers.reduce<ReportRow>((acc, header) => {
@@ -110,6 +117,7 @@ export default function FeeReports() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [activeReportTitle, setActiveReportTitle] = useState('');
   const [reportRows, setReportRows] = useState<ReportRow[]>([]);
+  const [notice, setNotice] = useState<{ title: string; message: string; tone?: 'success' | 'error' | 'info' } | null>(null);
   const [dailyCollectionDate, setDailyCollectionDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [studentReportSearch, setStudentReportSearch] = useState('');
   const [selectedStudentForReport, setSelectedStudentForReport] = useState('');
@@ -128,20 +136,24 @@ export default function FeeReports() {
     year: String(new Date().getFullYear()),
   });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` };
-      const [feesRes, studentsRes, classesRes] = await Promise.all([
-        fetch('/api/fees', { headers }),
-        fetch('/api/students', { headers }),
-        fetch('/api/classes', { headers }),
-      ]);
-      setFees(await feesRes.json());
-      setStudents(await studentsRes.json());
-      setClasses(await classesRes.json());
-      setLoading(false);
-    };
+  const fetchData = async () => {
+    const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` };
+    const [feesRes, studentsRes, classesRes] = await Promise.all([
+      fetch('/api/fees', { headers }),
+      fetch('/api/students', { headers }),
+      fetch('/api/classes', { headers }),
+    ]);
+    const feesData = await feesRes.json();
+    const studentsData = await studentsRes.json();
+    const classesData = await classesRes.json();
+    setFees(feesData);
+    setStudents(studentsData);
+    setClasses(classesData);
+    setLoading(false);
+    return { fees: feesData, students: studentsData, classes: classesData };
+  };
 
+  useEffect(() => {
     fetchData();
   }, []);
 
@@ -243,14 +255,17 @@ export default function FeeReports() {
     setIsReportModalOpen(true);
   };
 
-  const generateAdmissionDueReport = () => {
-    const rows = students
+  const buildAdmissionDueRows = (studentRows: any[], feeRows: any[]) =>
+    studentRows
       .map((student) => {
-        const paidAdmission = feesWithStudent
-          .filter((fee) => fee.student_id === student.id && getFeeCategory(fee.type) === 'admission' && fee.status === 'paid')
+        const admissionRows = feeRows.filter((fee) => fee.student_id === student.id && getFeeCategory(fee.type) === 'admission');
+        const paidAdmission = admissionRows
+          .filter((fee) => fee.status === 'paid')
           .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-        const expectedAdmission = student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0);
-        const dueAmount = Math.max(expectedAdmission - paidAdmission, 0);
+        const dueAmount = admissionRows
+          .filter((fee) => fee.status === 'pending')
+          .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+        const expectedAdmission = paidAdmission + dueAmount;
 
         return {
           'Registration No': student.reg_no,
@@ -264,6 +279,12 @@ export default function FeeReports() {
       })
       .filter((row) => Number(row['Pending Amount']) > 0);
 
+  const generateAdmissionDueReport = async () => {
+    const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` };
+    await fetch('/api/admin/fees/sync-active-students', { method: 'POST', headers });
+    const freshData = await fetchData();
+    const rows = buildAdmissionDueRows(freshData.students, freshData.fees);
+
     openReport('Admission Due Report', rows);
   };
 
@@ -273,7 +294,7 @@ export default function FeeReports() {
       const summary = getStudentSummary(fee.student_id);
       return {
         Date: fee.date,
-        'Bill No': fee.bill_no,
+        'Receipt No': fee.bill_no,
         'Student Name': fee.student_name,
         'Phone Number': fee.student?.phone || '',
         Class: fee.student?.class_name || '',
@@ -293,7 +314,7 @@ export default function FeeReports() {
   const generateStudentReport = () => {
     const student = students.find((item) => String(item.id) === selectedStudentForReport);
     if (!student) {
-      alert('Please select a student first.');
+      setNotice({ title: 'Select Student', message: 'Please select a student first.', tone: 'error' });
       return;
     }
 
@@ -301,34 +322,43 @@ export default function FeeReports() {
     const rows = feesWithStudent
       .filter((fee) => fee.student_id === student.id)
       .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.bill_no || '').localeCompare(String(b.bill_no || '')))
-      .map((fee) => ({
-        Date: fee.date,
-        'Bill No': fee.bill_no,
-        'Registration No': student.reg_no || '',
-        'Student Name': student.name || '',
-        'Father Name': student.father_name || '',
-        'Mother Name': student.mother_name || '',
-        'Phone Number': student.phone || '',
-        'Alt Phone Number': student.father_phone || student.mother_phone || '',
-        Address: student.address || '',
-        Gender: student.gender || '',
-        Class: student.class_name || '',
-        Section: student.section || '',
-        Stream: student.stream || '',
-        'Educational Year': convertLegacySessionLabel(String(student.session || '')),
-        'Profile Admission Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0),
-        'Profile Coaching Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_coaching_fee || 0) : Number(student.coaching_fee || 0),
-        'Profile Transport Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_transport_fee || 0) : Number(student.transport_fee || 0),
-        'Profile Entrance Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_entrance_fee || 0) : Number(student.entrance_fee || 0),
-        'Profile Fooding Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_fooding_fee || 0) : Number(student.fooding_fee || 0),
-        'Profile Hostel Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_hostel_fee || 0) : Number(student.hostel_fee || 0),
-        'Fee Ledger': fee.type,
-        Status: fee.status,
-        'Total Amount': summary.total_amount,
-        'Paid Amount': fee.status === 'paid' ? Number(fee.amount || 0) : 0,
-        'Pending Amount': fee.status === 'pending' ? Number(fee.amount || 0) : 0,
-        Amount: Number(fee.amount || 0),
-      }));
+      .map((fee) => {
+        const paymentClass = String(fee.class_name || classNameById.get(Number(fee.class_id)) || student.class_name || '');
+        const paymentSession = convertLegacySessionLabel(String(fee.academic_session || student.session || ''));
+
+        return {
+          Date: fee.date,
+          'Receipt No': fee.bill_no,
+          'Registration No': student.reg_no || '',
+          'Student Name': student.name || '',
+          'Father Name': student.father_name || '',
+          'Mother Name': student.mother_name || '',
+          'Phone Number': student.phone || '',
+          'Alt Phone Number': student.father_phone || student.mother_phone || '',
+          Address: student.address || '',
+          Gender: student.gender || '',
+          Class: student.class_name || '',
+          Section: student.section || '',
+          Stream: student.stream || '',
+          'Educational Year': convertLegacySessionLabel(String(student.session || '')),
+          'Payment Class': paymentClass,
+          'Payment Session': paymentSession,
+          'Payment Year Group': getAcademicYearGroup(paymentClass),
+          'Profile Admission Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_admission_fee || 0) : Number(student.admission_fee || 0),
+          'Profile Coaching Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_coaching_fee || 0) : Number(student.coaching_fee || 0),
+          'Profile Transport Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_transport_fee || 0) : Number(student.transport_fee || 0),
+          'Profile Entrance Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_entrance_fee || 0) : Number(student.entrance_fee || 0),
+          'Profile Fooding Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_fooding_fee || 0) : Number(student.fooding_fee || 0),
+          'Profile Hostel Fee': student.dynamic_fees ? Number(student.dynamic_fees.dynamic_hostel_fee || 0) : Number(student.hostel_fee || 0),
+          'Fee Ledger': fee.type,
+          Remark: fee.remark || '',
+          Status: fee.status,
+          'Total Amount': summary.total_amount,
+          'Paid Amount': fee.status === 'paid' ? Number(fee.amount || 0) : 0,
+          'Pending Amount': fee.status === 'pending' ? Number(fee.amount || 0) : 0,
+          Amount: Number(fee.amount || 0),
+        };
+      });
 
     openReport(`Student Fee Report - ${student.name} - ${student.reg_no}`, rows);
   };
@@ -482,7 +512,7 @@ export default function FeeReports() {
       .map((fee) => {
         const summary = getStudentSummary(fee.student_id);
         return {
-          'Bill No': fee.bill_no,
+          'Receipt No': fee.bill_no,
           Date: fee.date,
           'Student Name': fee.student_name,
           'Registration No': fee.student?.reg_no || '',
@@ -848,7 +878,11 @@ export default function FeeReports() {
                   Print
                 </button>
                 <button
-                  onClick={() => downloadExcelFile(reportRows, activeReportTitle.toLowerCase().replace(/\s+/g, '-'))}
+                  onClick={() => downloadExcelFile(
+                    reportRows,
+                    activeReportTitle.toLowerCase().replace(/\s+/g, '-'),
+                    () => setNotice({ title: 'No Data', message: 'No data available to export.', tone: 'info' }),
+                  )}
                   className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
                 >
                   <Download size={16} />
@@ -873,6 +907,71 @@ export default function FeeReports() {
                   const profileRow = reportRows[0];
                   const totalsRow = reportRows[reportRows.length - 1];
                   const transactions = reportRows.slice(0, -1);
+                  const renderPaymentTable = (title: string, rows: ReportRow[]) => {
+                    const paidTotal = rows.reduce((sum, row) => sum + Number(row['Paid Amount'] || 0), 0);
+                    const pendingTotal = rows.reduce((sum, row) => sum + Number(row['Pending Amount'] || 0), 0);
+
+                    return (
+                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <h4 className="font-bold text-slate-800">{title}</h4>
+                            <p className="text-xs text-slate-500">Payments and pending dues for this academic year.</p>
+                          </div>
+                          <div className="flex gap-2 text-xs font-bold">
+                            <span className="rounded-lg bg-emerald-50 px-3 py-1.5 text-emerald-700">Paid: {formatCurrency(paidTotal)}</span>
+                            <span className="rounded-lg bg-rose-50 px-3 py-1.5 text-rose-700">Pending: {formatCurrency(pendingTotal)}</span>
+                          </div>
+                        </div>
+                        {rows.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500">No records for this year.</div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <Table className="whitespace-nowrap">
+                              <TableHead>
+                                <TableRow className="hover:bg-transparent">
+                                  <TableHeaderCell className="px-6 py-3">Date</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Receipt No</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Class / Session</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Fee Ledger</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Remark</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3">Status</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3 text-right">Paid</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3 text-right">Pending</TableHeaderCell>
+                                  <TableHeaderCell className="px-6 py-3 text-right">Row Amount</TableHeaderCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {rows.map((t, index) => (
+                                  <TableRow key={`${title}-${index}`}>
+                                    <TableCell className="px-6 py-3">{String(t['Date'])}</TableCell>
+                                    <TableCell className="px-6 py-3 font-mono">{String(t['Receipt No'])}</TableCell>
+                                    <TableCell className="px-6 py-3">
+                                      <div className="font-medium text-slate-800">{String(t['Payment Class'] || '-')}</div>
+                                      <div className="text-xs text-slate-500">{String(t['Payment Session'] || '-')}</div>
+                                    </TableCell>
+                                    <TableCell className="px-6 py-3 font-medium text-slate-700">{String(t['Fee Ledger'])}</TableCell>
+                                    <TableCell className="px-6 py-3 text-slate-600">{String(t['Remark'] || '-')}</TableCell>
+                                    <TableCell className="px-6 py-3">
+                                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${t['Status'] === 'paid' ? 'bg-emerald-100 text-emerald-700' : t['Status'] === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                                        {String(t['Status'])}
+                                      </span>
+                                    </TableCell>
+                                    <TableCell className="px-6 py-3 text-right font-bold text-emerald-700">{formatCurrency(Number(t['Paid Amount'] || 0))}</TableCell>
+                                    <TableCell className="px-6 py-3 text-right font-bold text-rose-700">{formatCurrency(Number(t['Pending Amount'] || 0))}</TableCell>
+                                    <TableCell className="px-6 py-3 text-right font-bold text-slate-900">{formatCurrency(Number(t['Amount'] || 0))}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+                  const firstYearTransactions = transactions.filter((row) => row['Payment Year Group'] === '1st Year');
+                  const secondYearTransactions = transactions.filter((row) => row['Payment Year Group'] === '2nd Year');
+                  const otherTransactions = transactions.filter((row) => row['Payment Year Group'] !== '1st Year' && row['Payment Year Group'] !== '2nd Year');
                   return (
                     <div className="p-8 space-y-8 bg-slate-50">
                       {/* 1. Student Profile */}
@@ -953,45 +1052,15 @@ export default function FeeReports() {
                         </div>
                       </div>
 
-                      {/* 3. Transaction History */}
-                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                        <div className="bg-slate-50 border-b border-slate-100 px-6 py-4 flex flex-col gap-1">
-                          <h4 className="font-bold text-slate-800">Payment & Dues Transactions</h4>
-                          <p className="text-xs text-slate-500">Breakdown of specific fee payments and dues.</p>
-                        </div>
-                        {transactions.length === 0 ? (
-                          <div className="p-8 text-center text-slate-500">No transactions recorded for this student.</div>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <Table className="whitespace-nowrap">
-                              <TableHead>
-                                <TableRow className="hover:bg-transparent">
-                                  <TableHeaderCell className="px-6 py-3">Date</TableHeaderCell>
-                                  <TableHeaderCell className="px-6 py-3">Bill No</TableHeaderCell>
-                                  <TableHeaderCell className="px-6 py-3">Fee Ledger</TableHeaderCell>
-                                  <TableHeaderCell className="px-6 py-3">Status</TableHeaderCell>
-                                  <TableHeaderCell className="px-6 py-3 text-right">Row Amount</TableHeaderCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {transactions.map((t, index) => (
-                                  <TableRow key={index}>
-                                    <TableCell className="px-6 py-3">{String(t['Date'])}</TableCell>
-                                    <TableCell className="px-6 py-3 font-mono">{String(t['Bill No'])}</TableCell>
-                                    <TableCell className="px-6 py-3 font-medium text-slate-700">{String(t['Fee Ledger'])}</TableCell>
-                                    <TableCell className="px-6 py-3">
-                                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${t['Status'] === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                        {String(t['Status'])}
-                                      </span>
-                                    </TableCell>
-                                    <TableCell className="px-6 py-3 text-right font-bold text-slate-900">{formatCurrency(Number(t['Amount']))}</TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        )}
-                      </div>
+                      {transactions.length === 0 ? (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm">No transactions recorded for this student.</div>
+                      ) : (
+                        <>
+                          {renderPaymentTable('1st Year Payment Data', firstYearTransactions)}
+                          {renderPaymentTable('2nd Year Payment Data', secondYearTransactions)}
+                          {otherTransactions.length > 0 && renderPaymentTable('Other Payment Data', otherTransactions)}
+                        </>
+                      )}
                     </div>
                   );
                 })()
@@ -1026,6 +1095,14 @@ export default function FeeReports() {
             </div>
           </div>
         </div>
+      )}
+      {notice && (
+        <MessageDialog
+          title={notice.title}
+          message={notice.message}
+          tone={notice.tone}
+          onClose={() => setNotice(null)}
+        />
       )}
     </div>
   );

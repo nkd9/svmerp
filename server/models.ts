@@ -149,7 +149,8 @@ const feeSchema = new Schema(
     discount: { type: Number, default: 0 },
     mode: { type: String, default: "Cash" },
     reference_no: { type: String, default: "" },
-    bill_no: { type: String, required: true, unique: true, trim: true },
+    remark: { type: String, default: "" },
+    bill_no: { type: String, required: true, trim: true },
   },
   schemaOptions,
 );
