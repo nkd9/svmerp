@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, IndianRupee, Download, Printer, AlertCircle, Plus } from 'lucide-react';
+import { Search, IndianRupee, Download, Printer, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
@@ -110,6 +110,7 @@ export default function OldDueReport() {
     reference_no: '',
     discount: '0'
   });
+  const [deleteAction, setDeleteAction] = useState<{ fee: any; admin_password: string } | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -227,10 +228,45 @@ export default function OldDueReport() {
       setIsEditModalOpen(false);
       setEditingFee(null);
       fetchData();
-      setNotice({ title: 'Fee Updated', message: 'Fee updated successfully.', tone: 'success' });
+      const data = await res.json();
+      setNotice({
+        title: data.deleted ? 'Fee Removed' : 'Fee Updated',
+        message: data.deleted ? 'Zero amount fee row removed successfully.' : 'Fee updated successfully.',
+        tone: 'success'
+      });
     } else {
       const data = await res.json();
       setNotice({ title: 'Update Failed', message: data.error || 'Failed to update fee.', tone: 'error' });
+    }
+  };
+
+  const handleDeleteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (user?.role !== 'admin' || !deleteAction) {
+      setNotice({ title: 'Admin Required', message: 'Only admin can delete financial information.', tone: 'error' });
+      return;
+    }
+    if (!deleteAction.admin_password) {
+      setNotice({ title: 'Password Required', message: 'Admin password is required.', tone: 'error' });
+      return;
+    }
+
+    const res = await fetch(`/api/admin/fees/${deleteAction.fee.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ admin_password: deleteAction.admin_password })
+    });
+
+    if (res.ok) {
+      setDeleteAction(null);
+      fetchData();
+      setNotice({ title: 'Fee Deleted', message: 'Pending fee row deleted successfully.', tone: 'success' });
+    } else {
+      const data = await res.json();
+      setNotice({ title: 'Delete Failed', message: data.error || 'Failed to delete fee.', tone: 'error' });
     }
   };
 
@@ -296,6 +332,18 @@ export default function OldDueReport() {
       discount: '0'
     });
     setIsPayModalOpen(true);
+  };
+
+  const openDeleteModal = (fee: any) => {
+    if (user?.role !== 'admin') {
+      setNotice({ title: 'Admin Required', message: 'Only admin can delete financial information.', tone: 'error' });
+      return;
+    }
+    if (fee.status === 'paid') {
+      setNotice({ title: 'Paid Receipt', message: 'Paid receipts cannot be deleted from this report.', tone: 'error' });
+      return;
+    }
+    setDeleteAction({ fee, admin_password: '' });
   };
 
   const handleDiscountChange = (discountValue: string) => {
@@ -554,6 +602,15 @@ export default function OldDueReport() {
                         >
                           Pay
                         </Button>
+                        <Button
+                          onClick={() => openDeleteModal(fee)}
+                          variant="outline"
+                          size="sm"
+                          className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                        >
+                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          Delete
+                        </Button>
                       </TableCell>
                     )}
                   </TableRow>
@@ -740,6 +797,52 @@ export default function OldDueReport() {
                   className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-3 font-bold transition-all shadow-[0_4px_14px_0_rgba(5,150,105,0.39)] hover:shadow-[0_6px_20px_rgba(5,150,105,0.23)] hover:-translate-y-0.5 active:translate-y-0"
                 >
                   Pay & Generate Receipt
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteAction && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">Delete Fee Row</h3>
+              <button onClick={() => setDeleteAction(null)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+                <Plus className="w-5 h-5 rotate-45 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleDeleteSubmit} className="p-4 space-y-4">
+              <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-800">
+                <p className="font-bold">This will delete the pending fee row.</p>
+                <p className="mt-1">{deleteAction.fee.student?.name} - {deleteAction.fee.type}</p>
+                <p className="mt-1 font-mono text-xs">{deleteAction.fee.bill_no}</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Admin Password</label>
+                <input
+                  required
+                  type="password"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  value={deleteAction.admin_password}
+                  onChange={(e) => setDeleteAction((current) => current ? { ...current, admin_password: e.target.value } : current)}
+                  placeholder="Confirm admin password"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteAction(null)}
+                  className="flex-1 rounded-xl bg-slate-100 px-4 py-2.5 font-bold text-slate-700 transition-colors hover:bg-slate-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 font-bold text-white shadow-lg shadow-rose-200 transition-all hover:bg-rose-700"
+                >
+                  Delete
                 </button>
               </div>
             </form>

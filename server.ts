@@ -1222,6 +1222,24 @@ async function startServer() {
       if (beforeFee?.status === "paid") {
         return res.status(400).json({ error: "Paid receipts cannot be edited. Cancel the payment first, then collect again." });
       }
+
+      if (!beforeFee) {
+        return res.status(404).json({ error: "Fee not found" });
+      }
+
+      if (updatedAmount <= 0) {
+        await Fee.deleteOne({ id: feeId });
+        await writeAuditLog(req, {
+          action: "delete_zero_amount_fee",
+          entity: "fee",
+          entity_id: feeId,
+          summary: `Deleted zero-amount pending fee ${beforeFee.bill_no || beforeFee.id}`,
+          before: beforeFee,
+          after: null,
+        });
+        return res.json({ success: true, deleted: true });
+      }
+
       const fee = await Fee.findOneAndUpdate(
         { id: feeId },
         { amount: updatedAmount },

@@ -21,6 +21,7 @@ import {
   Button,
   EmptyTableRow,
   Input,
+  MessageDialog,
   PageHeader,
   Pagination,
   Select,
@@ -336,6 +337,7 @@ export default function Students() {
     hostel_required: 'No',
     hostel_fee: '',
   });
+  const [notice, setNotice] = useState<{ title: string; message: string; tone?: 'success' | 'error' | 'info' } | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState('');
@@ -682,7 +684,7 @@ export default function Students() {
     });
 
     if (res.ok) {
-      alert('Student fee setup updated successfully');
+      setNotice({ title: 'Fee Setup Updated', message: 'Student fee setup updated successfully.', tone: 'success' });
       setIsFeeSetupOpen(false);
       setFeeSetupStudent(null);
       fetchData();
@@ -690,7 +692,7 @@ export default function Students() {
     }
 
     const data = await res.json().catch(() => ({ error: 'Failed to update fee setup' }));
-    alert(data.error || 'Failed to update fee setup');
+    setNotice({ title: 'Fee Setup Failed', message: data.error || 'Failed to update fee setup.', tone: 'error' });
   };
 
   const generateReport = async () => {
@@ -2068,10 +2070,9 @@ export default function Students() {
                   { flag: 'transport', amount: 'transport_fee', label: 'Transport' },
                   { flag: 'entrance', amount: 'entrance_fee', label: 'Entrance' },
                   { flag: 'fooding', amount: 'fooding_fee', label: 'Fooding' },
-                  { flag: 'hostel_required', amount: 'hostel_fee', label: 'Hostel', amountLocked: true },
+                  { flag: 'hostel_required', amount: 'hostel_fee', label: 'Hostel' },
                 ].map((item) => {
                   const enabled = feeSetupData[item.flag as keyof typeof feeSetupData] === 'Yes';
-                  const amountLocked = Boolean(item.amountLocked);
                   return (
                     <div key={item.flag} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-[140px_minmax(0,1fr)]">
                       <label className="space-y-2">
@@ -2099,16 +2100,15 @@ export default function Students() {
                           <input
                             type="number"
                             min="0"
-                            readOnly={amountLocked}
-                            disabled={!enabled || amountLocked}
+                            disabled={!enabled}
                             value={feeSetupData[item.amount as keyof typeof feeSetupData]}
                             onChange={(e) => setFeeSetupData((current) => ({ ...current, [item.amount]: e.target.value }))}
                             className={`w-full rounded-xl border py-2.5 pl-10 pr-4 outline-none transition ${
-                              enabled && !amountLocked
+                              enabled
                                 ? 'border-slate-200 bg-white text-slate-700 focus:border-indigo-500'
                                 : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                             }`}
-                            title={amountLocked ? `${item.label} Fee is managed by Fee Structure Setup and cannot be changed student-wise.` : undefined}
+                            title={enabled ? `Custom ${item.label.toLowerCase()} fee for this student` : `Enable ${item.label} to edit`}
                           />
                         </div>
                       </label>
@@ -2219,6 +2219,15 @@ export default function Students() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {notice && (
+        <MessageDialog
+          title={notice.title}
+          message={notice.message}
+          tone={notice.tone}
+          onClose={() => setNotice(null)}
+        />
+      )}
     </div>
   );
 }
