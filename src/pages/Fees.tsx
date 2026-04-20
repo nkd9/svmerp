@@ -38,6 +38,9 @@ const getFeeSortTime = (fee: any) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
+const AUTO_CURRENT_FEE_REFERENCE = 'Auto-created from student fee setup';
+
 const getFeeCategory = (value?: string) => {
   const type = String(value || '').toLowerCase();
   if (type.includes('old due')) return 'old';
@@ -47,6 +50,57 @@ const getFeeCategory = (value?: string) => {
   if (type.includes('entrance')) return 'entrance';
   if (type.includes('food')) return 'fooding';
   if (type.includes('hostel')) return 'hostel';
+  return 'other';
+};
+
+const getAcademicSessionStartYear = (value?: string) => {
+  const match = /^(\d{4})-(?:\d{2}|\d{4})$/.exec(String(value || '').trim());
+  return match ? Number(match[1]) : 0;
+};
+
+const getCollegeYearRank = (className?: string) => {
+  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  if (/\b(XI|1ST YEAR|FIRST YEAR)\b/.test(normalized)) return 1;
+  if (/\b(XII|2ND YEAR|SECOND YEAR)\b/.test(normalized)) return 2;
+  return 0;
+};
+
+const getCollegeStreamName = (className?: string) => {
+  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  if (normalized.includes('ARTS')) return 'ARTS';
+  if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'SCIENCE';
+  return '';
+};
+
+const isOlderAcademicBucket = (fee: any, student: any) => {
+  const feeYear = getAcademicSessionStartYear(fee?.academic_session);
+  const studentYear = getAcademicSessionStartYear(student?.session);
+  if (feeYear && studentYear && feeYear < studentYear) return true;
+  if (feeYear && studentYear && feeYear > studentYear) return false;
+
+  const feeRank = getCollegeYearRank(fee?.class_name);
+  const studentRank = getCollegeYearRank(student?.class_name);
+  const feeStream = getCollegeStreamName(fee?.class_name);
+  const studentStream = getCollegeStreamName(student?.class_name);
+
+  if (feeRank && studentRank) {
+    if (feeStream && studentStream && feeStream === studentStream) return feeRank < studentRank;
+    return feeRank < studentRank;
+  }
+
+  return false;
+};
+
+const getFeePaymentStage = (fee: any, student: any): 'old' | 'admission' | 'other' => {
+  const category = getFeeCategory(fee?.type);
+  if (category === 'old') return 'old';
+  if (student && isOlderAcademicBucket(fee, student)) return 'old';
+
+  const isLegacyOldDueLedger =
+    OLD_DUE_LEDGER_TYPES.has(String(fee?.type || '')) &&
+    String(fee?.reference_no || '') !== AUTO_CURRENT_FEE_REFERENCE;
+  if (category !== 'admission' && isLegacyOldDueLedger) return 'old';
+  if (category === 'admission') return 'admission';
   return 'other';
 };
 
@@ -330,14 +384,19 @@ export default function Fees() {
     : [];
   const selectedPendingFee = selectedStudentPendingFees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
   const selectedPendingFees = selectedStudentPendingFees.filter((fee) => selectedPendingFeeIds.includes(String(fee.id)));
+  const selectedPaymentStages = new Set(selectedPendingFees.map((fee) => getFeePaymentStage(fee, selectedStudent)));
   const selectedPendingAmount = selectedPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-  const blockingOldDue = selectedStudentPendingFees.find(fee => getFeeCategory(fee.type) === 'old');
-  const blockingAdmissionFee = selectedStudentPendingFees.find(fee => getFeeCategory(fee.type) === 'admission');
+  const oldDuePendingFees = selectedStudentPendingFees.filter((fee) => getFeePaymentStage(fee, selectedStudent) === 'old');
+  const admissionPendingFees = selectedStudentPendingFees.filter((fee) => getFeePaymentStage(fee, selectedStudent) === 'admission');
+  const blockingOldDue = oldDuePendingFees[0] || null;
+  const blockingAdmissionFee = admissionPendingFees[0] || null;
   const canCollectOtherFee = Boolean(selectedStudent && !blockingOldDue && !blockingAdmissionFee);
   const isOtherFeeSelected = formData.type === 'Other Fee';
-  const allowedPendingFees = blockingAdmissionFee
-    ? selectedStudentPendingFees.filter((fee) => fee.id === blockingAdmissionFee.id)
-    : selectedStudentPendingFees;
+  const allowedPendingFees = blockingOldDue
+    ? oldDuePendingFees
+    : blockingAdmissionFee
+      ? admissionPendingFees
+      : selectedStudentPendingFees;
   const feeLedgerOptions: Array<{ id: number | string; name: string }> = selectedStudent
     ? [
         ...Array.from(new Map<string, { id: number | string; name: string }>(allowedPendingFees.map((fee) => [String(fee.type || ''), { id: fee.id, name: String(fee.type || '') }])).values()).filter((ledger) => ledger.name),
@@ -392,9 +451,10 @@ export default function Fees() {
     const pendingFeesForStudent = feesSource
       .filter((fee) => fee.student_id === student?.id && fee.status === 'pending')
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const pendingOldDue = pendingFeesForStudent.find((fee) => getFeePaymentStage(fee, student) === 'old');
+    const pendingAdmission = pendingFeesForStudent.find((fee) => getFeePaymentStage(fee, student) === 'admission');
     const firstPendingFee = pendingFeesForStudent[0];
-    const pendingAdmission = pendingFeesForStudent.find(fee => String(fee.type || '').toLowerCase().includes('admission'));
-    const initialFee = pendingAdmission || firstPendingFee;
+    const initialFee = pendingOldDue || pendingAdmission || firstPendingFee;
     
     setSelectedPendingFeeId(initialFee ? String(initialFee.id) : '');
     setSelectedPendingFeeIds(initialFee ? [String(initialFee.id)] : []);
@@ -459,8 +519,8 @@ export default function Fees() {
 
   const togglePendingFee = (fee: any) => {
     const feeId = String(fee.id);
-    const category = getFeeCategory(fee.type);
-    if (category === 'old' || category === 'admission' || blockingAdmissionFee) {
+    const stage = getFeePaymentStage(fee, selectedStudent);
+    if (stage === 'old' || stage === 'admission' || blockingAdmissionFee) {
       handlePendingFeeChange(feeId);
       return;
     }
@@ -899,8 +959,8 @@ export default function Fees() {
                   <div className="flex items-center gap-3 text-rose-800">
                     <AlertCircle className="h-5 w-5 shrink-0" />
                     <div>
-                      <h4 className="font-bold text-sm">Action Required</h4>
-                      <p className="text-sm mt-0.5">This student has older dues. Please pay old dues before collecting current dues.</p>
+                      <h4 className="font-bold text-sm">Old Due Pending</h4>
+                      <p className="text-sm mt-0.5">Only old due can be collected now. Admission and other fees will unlock after all old dues are cleared.</p>
                     </div>
                   </div>
                   <Link 
@@ -932,7 +992,7 @@ export default function Fees() {
                     className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
                     value={formData.type}
                     onChange={(e) => handleFeeLedgerChange(e.target.value)}
-                    disabled={Boolean(blockingOldDue) || !selectedStudent || (allowedPendingFees.length === 0 && !canCollectOtherFee)}
+                    disabled={!selectedStudent || (allowedPendingFees.length === 0 && !canCollectOtherFee)}
                   >
                     {selectedStudent && feeLedgerOptions.length === 0 ? (
                       <option value="">No payable pending fee</option>
@@ -1012,8 +1072,8 @@ export default function Fees() {
                       {allowedPendingFees.map((fee) => {
                         const feeId = String(fee.id);
                         const checked = selectedPendingFeeIds.includes(feeId);
-                        const category = getFeeCategory(fee.type);
-                        const singleOnly = category === 'admission' || category === 'old' || Boolean(blockingAdmissionFee);
+                        const stage = getFeePaymentStage(fee, selectedStudent);
+                        const singleOnly = stage === 'admission' || stage === 'old' || Boolean(blockingAdmissionFee);
                         return (
                           <label
                             key={fee.id}
@@ -1025,7 +1085,7 @@ export default function Fees() {
                               type={singleOnly ? 'radio' : 'checkbox'}
                               name="pending_fee_to_settle"
                               checked={checked}
-                              disabled={Boolean(blockingOldDue) || !selectedStudent}
+                              disabled={!selectedStudent}
                               onChange={() => togglePendingFee(fee)}
                               className="h-4 w-4 accent-indigo-600"
                             />
@@ -1071,7 +1131,6 @@ export default function Fees() {
                       className={`w-full rounded-xl border-none py-2.5 pl-11 pr-4 text-slate-700 outline-none disabled:opacity-50 ${isOtherFeeSelected ? 'bg-slate-50 focus:ring-2 focus:ring-indigo-500' : 'cursor-not-allowed bg-slate-100'}`}
                       value={formData.amount}
                       onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                      disabled={Boolean(blockingOldDue)}
                     />
                   </div>
                 </div>
@@ -1124,11 +1183,12 @@ export default function Fees() {
                 <Button 
                   type="submit"
                   disabled={
-                    Boolean(blockingOldDue) ||
                     !selectedStudent ||
                     (!isOtherFeeSelected && selectedPendingFees.length === 0) ||
+                    (selectedPaymentStages.size > 1) ||
+                    (Boolean(blockingOldDue) && !selectedPaymentStages.has('old')) ||
                     (isOtherFeeSelected && (!formData.amount || !formData.remark.trim())) ||
-                    (Boolean(blockingAdmissionFee) && selectedPendingFee?.id !== blockingAdmissionFee?.id)
+                    (!blockingOldDue && Boolean(blockingAdmissionFee) && selectedPendingFee?.id !== blockingAdmissionFee?.id)
                   }
                   className="w-full px-6 py-3 font-bold"
                 >

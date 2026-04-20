@@ -22,6 +22,7 @@ import {
 
 const OLD_DUE_PAGE_SIZE = 20;
 const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
+const AUTO_CURRENT_FEE_REFERENCE = 'Auto-created from student fee setup';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
@@ -32,6 +33,56 @@ const formatReceiptDateTime = (date: string) => {
   } catch {
     return date;
   }
+};
+
+const getFeeCategory = (value?: string) => {
+  const type = String(value || '').toLowerCase();
+  if (type.includes('old due')) return 'old';
+  if (type.includes('admission')) return 'admission';
+  if (type.includes('coaching') || type.includes('tuition')) return 'coaching';
+  if (type.includes('transport')) return 'transport';
+  if (type.includes('entrance')) return 'entrance';
+  if (type.includes('food')) return 'fooding';
+  if (type.includes('hostel')) return 'hostel';
+  return 'other';
+};
+
+const getAcademicSessionStartYear = (value?: string) => {
+  const match = /^(\d{4})-(?:\d{2}|\d{4})$/.exec(String(value || '').trim());
+  return match ? Number(match[1]) : 0;
+};
+
+const getCollegeYearRank = (className?: string) => {
+  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  if (/\b(XI|1ST YEAR|FIRST YEAR)\b/.test(normalized)) return 1;
+  if (/\b(XII|2ND YEAR|SECOND YEAR)\b/.test(normalized)) return 2;
+  return 0;
+};
+
+const getCollegeStreamName = (className?: string) => {
+  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  if (normalized.includes('ARTS')) return 'ARTS';
+  if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'SCIENCE';
+  return '';
+};
+
+const isOlderAcademicBucket = (fee: any, student: any, feeClassName: string) => {
+  const feeYear = getAcademicSessionStartYear(fee?.academic_session);
+  const studentYear = getAcademicSessionStartYear(student?.session);
+  if (feeYear && studentYear && feeYear < studentYear) return true;
+  if (feeYear && studentYear && feeYear > studentYear) return false;
+
+  const feeRank = getCollegeYearRank(feeClassName);
+  const studentRank = getCollegeYearRank(student?.class_name);
+  const feeStream = getCollegeStreamName(feeClassName);
+  const studentStream = getCollegeStreamName(student?.class_name);
+
+  if (feeRank && studentRank) {
+    if (feeStream && studentStream && feeStream === studentStream) return feeRank < studentRank;
+    return feeRank < studentRank;
+  }
+
+  return false;
 };
 
 export default function OldDueReport() {
@@ -86,7 +137,16 @@ export default function OldDueReport() {
     student: students.find((student) => student.id === fee.student_id) || null,
   })), [fees, students]);
 
-  const isOldDueFee = (fee: any) => OLD_DUE_LEDGER_TYPES.has(String(fee.type || ''));
+  const isOldDueFee = (fee: any) => {
+    const feeClassName = String(classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || fee.student?.class_name || '');
+    const category = getFeeCategory(fee.type);
+    if (category === 'old') return true;
+    if (fee.student && isOlderAcademicBucket(fee, fee.student, feeClassName)) return true;
+
+    return category !== 'admission' &&
+      OLD_DUE_LEDGER_TYPES.has(String(fee.type || '')) &&
+      String(fee.reference_no || '') !== AUTO_CURRENT_FEE_REFERENCE;
+  };
 
   const sessionOptions = useMemo(
     () => (Array.from(new Set(
@@ -95,7 +155,7 @@ export default function OldDueReport() {
         .map((fee) => convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || '')))
         .filter(Boolean)
     )) as string[]).sort((a, b) => b.localeCompare(a)),
-    [feesWithStudent]
+    [feesWithStudent, classNameById]
   );
 
   const classOptions = useMemo(

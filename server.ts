@@ -130,6 +130,9 @@ function computeDynamicFees(student: any, feeStructures: any[]) {
 }
 
 type FeeCategory = "admission" | "coaching" | "transport" | "entrance" | "fooding" | "hostel" | "old" | "other";
+type FeePaymentStage = "old" | "admission" | "other";
+const OLD_DUE_LEDGER_TYPES = new Set(["Coaching Fee", "Food Fee", "Hostel Fee", "Transport Fee", "Old Due Collection"]);
+const AUTO_CURRENT_FEE_REFERENCE = "Auto-created from student fee setup";
 
 function getFeeCategory(value: unknown): FeeCategory {
   const type = String(value || "").toLowerCase();
@@ -140,6 +143,30 @@ function getFeeCategory(value: unknown): FeeCategory {
   if (type.includes("entrance")) return "entrance";
   if (type.includes("food")) return "fooding";
   if (type.includes("hostel")) return "hostel";
+  return "other";
+}
+
+function getFeePaymentStage(fee: any, student: any, classNameById: Map<number, string>): FeePaymentStage {
+  const category = getFeeCategory(fee?.type);
+  if (category === "old") {
+    return "old";
+  }
+
+  const feeClassName = classNameById.get(Number(fee?.class_id)) || "";
+  const studentClassName = classNameById.get(Number(student?.class_id)) || "";
+  if (student && isOlderAcademicBucket(fee?.academic_session, feeClassName, student?.session, studentClassName)) {
+    return "old";
+  }
+
+  const isLegacyOldDueLedger = OLD_DUE_LEDGER_TYPES.has(String(fee?.type || "")) && String(fee?.reference_no || "") !== AUTO_CURRENT_FEE_REFERENCE;
+  if (category !== "admission" && isLegacyOldDueLedger) {
+    return "old";
+  }
+
+  if (category === "admission") {
+    return "admission";
+  }
+
   return "other";
 }
 
@@ -938,7 +965,7 @@ async function startServer() {
   app.post("/api/fees", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const classDocs = await ClassModel.find().lean();
-      const classNameById = new Map(classDocs.map((item) => [item.id, item.name]));
+      const classNameById = new Map<number, string>(classDocs.map((item) => [Number(item.id), String(item.name || "")]));
       const pendingFeeIds = Array.isArray(req.body.pending_fee_ids)
         ? req.body.pending_fee_ids.map((value: unknown) => toNumber(value)).filter((value: number) => value > 0)
         : [];
@@ -972,17 +999,6 @@ async function startServer() {
           return res.status(400).json({ error: "Selected pending fee does not belong to this student." });
         }
 
-        const selectedCategories = new Set(pendingFees.map((fee) => getFeeCategory(fee.type)));
-        if (selectedCategories.has("old") && pendingFees.length > 1) {
-          return res.status(400).json({ error: "Old dues must be cleared separately before any other payment." });
-        }
-        if (selectedCategories.has("admission") && pendingFees.length > 1) {
-          return res.status(400).json({ error: "Admission fee must be collected separately before other fees." });
-        }
-        if (pendingFees.length > 1 && pendingFees.some((fee) => getFeeCategory(fee.type) === "other")) {
-          return res.status(400).json({ error: "Please collect custom or unknown fee ledgers one at a time." });
-        }
-
         const totalPendingAmount = pendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
         if (paymentAmount <= 0 || paymentAmount > totalPendingAmount) {
           return res.status(400).json({ error: "Payment amount must be greater than 0 and cannot exceed the selected pending dues." });
@@ -1003,27 +1019,33 @@ async function startServer() {
           status: "pending",
           id: { $nin: pendingFeeIds },
         }).lean();
-        const primaryClassName = classNameById.get(Number(primaryFee.class_id)) || "";
         const paymentStudent = await Student.findOne({ id: Number(primaryFee.student_id) }).lean();
         if (!paymentStudent) {
           return res.status(404).json({ error: "Student not found" });
         }
-        const studentCurrentClassName = classNameById.get(Number(paymentStudent.class_id)) || "";
-        const primaryIsOldDue = selectedCategories.has("old");
+        const selectedStages = new Set(pendingFees.map((fee) => getFeePaymentStage(fee, paymentStudent, classNameById)));
+        if (selectedStages.size > 1) {
+          return res.status(400).json({ error: "Please collect only one payment priority at a time: old due, then admission, then other fees." });
+        }
+        if (selectedStages.has("old") && pendingFees.length > 1) {
+          return res.status(400).json({ error: "Old dues must be cleared one by one before any other payment." });
+        }
+        if (selectedStages.has("admission") && pendingFees.length > 1) {
+          return res.status(400).json({ error: "Admission fee must be collected separately before other fees." });
+        }
+        if (pendingFees.length > 1 && pendingFees.some((fee) => getFeeCategory(fee.type) === "other")) {
+          return res.status(400).json({ error: "Please collect custom or unknown fee ledgers one at a time." });
+        }
 
-        if (!primaryIsOldDue) {
-          const blockingOlderDue = otherPendingFees.find((fee) =>
-            getFeeCategory(fee.type) === "old",
-          );
+        const selectedStage = Array.from(selectedStages)[0] || "other";
+        const blockingOldDue = otherPendingFees.find((fee) => getFeePaymentStage(fee, paymentStudent, classNameById) === "old");
+        if (selectedStage !== "old" && blockingOldDue) {
+          return res.status(400).json({ error: "Cannot accept this payment. Please clear old dues first." });
+        }
 
-          if (blockingOlderDue) {
-            return res.status(400).json({ error: "Cannot accept payment. Please clear older dues first." });
-          }
-
-          const blockingAdmissionFee = otherPendingFees.find((fee) => getFeeCategory(fee.type) === "admission");
-          if (blockingAdmissionFee && !selectedCategories.has("admission")) {
-            return res.status(400).json({ error: "Cannot accept this payment. Please collect the admission fee first." });
-          }
+        const blockingAdmissionFee = otherPendingFees.find((fee) => getFeePaymentStage(fee, paymentStudent, classNameById) === "admission");
+        if (selectedStage === "other" && blockingAdmissionFee) {
+          return res.status(400).json({ error: "Cannot accept this payment. Please collect the admission fee first." });
         }
 
         const receiptBillNo = await getNextReceiptBillNo();
@@ -1119,10 +1141,11 @@ async function startServer() {
         }
 
         const pendingFees = await Fee.find({ student_id: studentForPayment.id, status: "pending" }).lean();
-        const blockingFee = pendingFees.find((fee) => ["old", "admission"].includes(getFeeCategory(fee.type)));
+        const blockingFee = pendingFees.find((fee) => ["old", "admission"].includes(getFeePaymentStage(fee, studentForPayment, classNameById)));
         if (blockingFee) {
+          const blockingStage = getFeePaymentStage(blockingFee, studentForPayment, classNameById);
           return res.status(400).json({
-            error: getFeeCategory(blockingFee.type) === "old"
+            error: blockingStage === "old"
               ? "Cannot accept other fee. Please clear old dues first."
               : "Cannot accept other fee. Please collect the admission fee first.",
           });
