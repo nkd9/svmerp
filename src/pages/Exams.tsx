@@ -23,6 +23,23 @@ const formatPercentage = (obtained: number, max: number) => {
   return `${((obtained / max) * 100).toFixed(1)}%`;
 };
 
+const getExamTotalMaxMarks = (exam: any) => {
+  const subjectMaxMarks = Array.isArray(exam?.subject_max_marks) ? exam.subject_max_marks : [];
+  const total = subjectMaxMarks.reduce((sum: number, item: any) => sum + Number(item?.max_marks || 0), 0);
+  return total > 0 ? total : 100;
+};
+
+const formatMarkValue = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === '') {
+    return 'NA';
+  }
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return String(value);
+  }
+  return Number.isInteger(numeric) ? String(numeric) : String(numeric);
+};
+
 const downloadExcelFile = (rows: Array<Record<string, string | number>>, fileName: string) => {
   if (!rows.length) {
     alert('No data available to export');
@@ -97,6 +114,7 @@ export default function Exams() {
   const [subjectReportColumns, setSubjectReportColumns] = useState<Array<{ name: string; max_marks: number }>>([]);
   const [examReportData, setExamReportData] = useState<any[]>([]);
   const [individualReportData, setIndividualReportData] = useState<any[]>([]);
+  const [individualReportCard, setIndividualReportCard] = useState<any | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [activeReportType, setActiveReportType] = useState<'subject' | 'exam' | 'individual' | null>(null);
   const [marksTableClassId, setMarksTableClassId] = useState('');
@@ -115,7 +133,7 @@ export default function Exams() {
       fetch('/api/exams', { headers }),
       fetch('/api/classes', { headers }),
       fetch('/api/subjects', { headers }),
-      fetch('/api/students', { headers }),
+      fetch('/api/students?status=active&limit=500', { headers }),
       fetch('/api/marks', { headers })
     ]);
     setExams(await examsRes.json());
@@ -207,7 +225,7 @@ export default function Exams() {
         exam_id: Number(markForm.exam_id),
         subject_id: subject.id,
         marks_obtained: Number(subjectMarks[subject.id]?.marks_obtained || 0),
-        max_marks: Number(subjectMarks[subject.id]?.max_marks || selectedExam?.full_marks || 100),
+        max_marks: Number(subjectMarks[subject.id]?.max_marks || getSubjectMaxMarks(subject.id)),
       }))
       .filter((item) => item.marks_obtained || item.max_marks);
 
@@ -262,7 +280,7 @@ export default function Exams() {
   const getSubjectMaxMarks = (subjectId: number) => {
     if (!selectedExam || !selectedExam.subject_max_marks) return 100;
     const found = selectedExam.subject_max_marks.find((sm: any) => sm.subject_id === subjectId);
-    return found ? found.max_marks : 100;
+      return found ? found.max_marks : getExamTotalMaxMarks(selectedExam);
   };
 
   const filteredStudents = useMemo(
@@ -610,49 +628,73 @@ export default function Exams() {
         }
         return true;
       });
+    const selectedStudent = students.find((item) => String(item.id) === individualReportFilters.student_id) || null;
+    if (!selectedStudent) {
+      alert('Please select a student');
+      return;
+    }
+    if (filteredRows.length === 0) {
+      setIndividualReportCard(null);
+      setIndividualReportData([]);
+      setActiveReportType('individual');
+      setIsReportModalOpen(true);
+      return;
+    }
 
-    const columns = Array.from(
-      new Map(
-        filteredRows.map((mark) => [String(mark.subject_name), { name: String(mark.subject_name), max_marks: Number(mark.max_marks) }]),
-      ).values(),
-    ) as Array<{ name: string; max_marks: number }>;
-    const grouped = new Map<string, any>();
+    const examOrder = exams
+      .filter((exam) =>
+        filteredRows.some((mark) => Number(mark.exam_id) === Number(exam.id)) &&
+        (!individualReportFilters.exam_id || String(exam.id) === individualReportFilters.exam_id),
+      )
+      .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || Number(a.id) - Number(b.id));
 
+    const subjectMap = new Map<string, { subject_name: string; values: Record<number, { full_marks: number | null; marks_obtained: number | null }> }>();
     filteredRows.forEach((mark) => {
-      const student = students.find((item) => item.id === mark.student_id);
-      const key = `${mark.student_id}-${mark.exam_id}`;
-      const existing = grouped.get(key) || {
-        student_name: mark.student_name,
-        reg_no: mark.reg_no,
-        class_name: classMap.get(student?.class_id) || '',
-        exam_name: mark.exam_name,
-        subjects: {} as Record<string, string>,
+      const key = String(mark.subject_name);
+      const existing = subjectMap.get(key) || { subject_name: key, values: {} };
+      existing.values[Number(mark.exam_id)] = {
+        full_marks: Number(mark.max_marks || 0),
+        marks_obtained: Number(mark.marks_obtained || 0),
       };
-
-      existing.subjects[mark.subject_name] = String(mark.marks_obtained);
-      grouped.set(key, existing);
+      subjectMap.set(key, existing);
     });
 
-    const rows = Array.from(grouped.values()).map((row) => {
-      const totalMarks = columns.reduce((sum, column) => sum + Number(row.subjects[column.name] || 0), 0);
-      const totalMaxMarks = columns.reduce((sum, column) => sum + Number(column.max_marks || 0), 0);
-
+    const subjectRows = Array.from(subjectMap.values()).sort((a, b) => a.subject_name.localeCompare(b.subject_name));
+    const totals = examOrder.map((exam) => {
+      const examMarks = filteredRows.filter((mark) => Number(mark.exam_id) === Number(exam.id));
       return {
-        student_name: row.student_name,
-        reg_no: row.reg_no,
-        class_name: row.class_name,
-        exam_name: row.exam_name,
-        ...columns.reduce<Record<string, string>>((acc, column) => {
-          acc[column.name] = row.subjects[column.name] || '-';
-          return acc;
-        }, {}),
-        total_marks: String(totalMarks),
-        percentage: formatPercentage(totalMarks, totalMaxMarks),
+        exam_id: Number(exam.id),
+        full_marks: examMarks.reduce((sum, mark) => sum + Number(mark.max_marks || 0), 0),
+        marks_obtained: examMarks.reduce((sum, mark) => sum + Number(mark.marks_obtained || 0), 0),
       };
     });
 
-    setSubjectReportColumns(columns);
-    setIndividualReportData(rows);
+    setIndividualReportCard({
+      student_name: selectedStudent.name || '',
+      father_name: selectedStudent.father_name || '',
+      mother_name: selectedStudent.mother_name || '',
+      roll_no: selectedStudent.roll_no || selectedStudent.reg_no || '',
+      reg_no: selectedStudent.reg_no || '',
+      class_name: selectedStudent.class_name || classMap.get(selectedStudent.class_id) || '',
+      exams: examOrder.map((exam) => ({
+        exam_id: Number(exam.id),
+        exam_name: exam.name,
+        exam_date: exam.date,
+      })),
+      subjects: subjectRows,
+      totals,
+    });
+    setIndividualReportData(
+      subjectRows.map((row) => {
+        const base: Record<string, string> = { Subject: row.subject_name };
+        examOrder.forEach((exam) => {
+          const value = row.values[Number(exam.id)];
+          base[`${exam.name} Full Mark`] = formatMarkValue(value?.full_marks);
+          base[`${exam.name} Appeared Mark`] = formatMarkValue(value?.marks_obtained);
+        });
+        return base;
+      }),
+    );
     setActiveReportType('individual');
     setIsReportModalOpen(true);
   };
@@ -679,7 +721,7 @@ export default function Exams() {
       const existingMark = existingMarks.find((mark) => mark.subject_id === subject.id);
       acc[subject.id] = {
         marks_obtained: existingMark ? String(existingMark.marks_obtained) : '',
-        max_marks: existingMark ? String(existingMark.max_marks) : String(selectedExam.full_marks || 100),
+        max_marks: existingMark ? String(existingMark.max_marks) : String(getSubjectMaxMarks(subject.id)),
       };
       return acc;
     }, {});
@@ -709,6 +751,106 @@ export default function Exams() {
     });
     setStudentSearch(`${student.name} (${student.reg_no})`);
     setIsMarkModalOpen(true);
+  };
+
+  const printIndividualReportCard = () => {
+    if (!individualReportCard) {
+      alert('No individual report to print');
+      return;
+    }
+
+    const examHeader = individualReportCard.exams
+      .map((exam: any) => `<th colspan="2">${String(exam.exam_name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</th>`)
+      .join('');
+    const examSubHeader = individualReportCard.exams.map(() => '<th>FULL MARK</th><th>APPERED MARK</th>').join('');
+    const subjectRows = individualReportCard.subjects
+      .map((subject: any) => {
+        const cells = individualReportCard.exams
+          .map((exam: any) => {
+            const value = subject.values?.[Number(exam.exam_id)];
+            return `<td>${formatMarkValue(value?.full_marks)}</td><td>${formatMarkValue(value?.marks_obtained)}</td>`;
+          })
+          .join('');
+        return `<tr><td class="subject">${String(subject.subject_name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>${cells}</tr>`;
+      })
+      .join('');
+    const totalCells = individualReportCard.totals
+      .map((total: any) => `<td>${formatMarkValue(total.full_marks)}</td><td>${formatMarkValue(total.marks_obtained)}</td>`)
+      .join('');
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    if (!printWindow) {
+      alert('Please allow pop-ups for printing');
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Individual Report - ${individualReportCard.student_name}</title>
+          <style>
+            @page { margin: 10mm; size: A4 portrait; }
+            body { font-family: Arial, sans-serif; margin: 0; padding: 16px; color: #111; }
+            .card { border: 1px solid #111; padding: 12px; margin-bottom: 16px; }
+            .header { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
+            .logo { border: 1px solid #111; height: 64px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+            .school-box { border: 1px solid #111; text-align: center; padding: 8px 10px; }
+            .school-title { font-size: 22px; font-weight: 700; letter-spacing: 0.3px; }
+            .school-subtitle { font-size: 15px; margin-top: 4px; }
+            .meta { display: grid; grid-template-columns: 180px 1fr; row-gap: 4px; column-gap: 10px; font-size: 14px; margin: 10px 0 14px; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            th, td { border: 1px solid #111; padding: 6px 4px; text-align: center; font-size: 13px; }
+            th { font-weight: 700; }
+            th.subject, td.subject { text-align: left; width: 150px; }
+            .totals td { font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="header">
+              <div class="logo">SVM</div>
+              <div class="school-box">
+                <div class="school-title">SVM CLASSES, DIGAPAHANDI</div>
+                <div class="school-subtitle">SSVM ABASIKA HIGHER SECONDARY SCHOOL</div>
+              </div>
+            </div>
+            <div class="meta">
+              <div>NAME:-</div><div>${String(individualReportCard.student_name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+              <div>FATHER'S NAME:-</div><div>${String(individualReportCard.father_name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+              <div>MOTHER'S NAME:-</div><div>${String(individualReportCard.mother_name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+              <div>ROLL NO:-</div><div>${String(individualReportCard.roll_no || individualReportCard.reg_no || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th class="subject" rowspan="2">SUBJECT</th>
+                  ${examHeader}
+                </tr>
+                <tr>
+                  ${examSubHeader}
+                </tr>
+              </thead>
+              <tbody>
+                ${subjectRows}
+                <tr class="totals">
+                  <td class="subject">TOTAL</td>
+                  ${totalCells}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   return (
@@ -801,7 +943,7 @@ export default function Exams() {
                     </div>
                     <div>
                       <div className="text-xs text-slate-500 font-medium mb-1">Full Marks</div>
-                      <div className="text-sm font-semibold text-slate-700">{exam.full_marks || '100'}</div>
+                      <div className="text-sm font-semibold text-slate-700">{getExamTotalMaxMarks(exam)}</div>
                     </div>
                   </div>
 
@@ -1040,7 +1182,7 @@ export default function Exams() {
               </select>
               <div className="flex gap-3">
                 <button onClick={generateIndividualReport} className="flex-1 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-3 font-bold text-white shadow-lg shadow-indigo-200">Generate</button>
-                <button onClick={() => printReport('Individual Report', individualReportData)} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Printer className="h-4 w-4" /></button>
+                <button onClick={printIndividualReportCard} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Printer className="h-4 w-4" /></button>
                 <button onClick={() => downloadExcelFile(individualReportData, 'individual-report')} className="rounded-xl border border-indigo-200 px-4 py-3 text-indigo-700"><Download className="h-4 w-4" /></button>
               </div>
             </div>
@@ -1051,15 +1193,15 @@ export default function Exams() {
 
       {/* Create Exam Modal */}
       {isExamModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-xl font-bold text-slate-900">Create New Exam</h3>
               <button onClick={() => setIsExamModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                 <X className="w-6 h-6 text-slate-400" />
               </button>
             </div>
-            <form onSubmit={handleCreateExam} className="p-6 space-y-4">
+            <form onSubmit={handleCreateExam} className="max-h-[calc(92vh-88px)] overflow-y-auto p-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Exam Name</label>
                 <input 
@@ -1080,18 +1222,6 @@ export default function Exams() {
                   value={examForm.date}
                   onChange={(e) => setExamForm({...examForm, date: e.target.value})}
                 />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Class</label>
-                <select 
-                  required
-                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                  value={examForm.class_id}
-                  onChange={(e) => setExamForm({...examForm, class_id: e.target.value})}
-                >
-                  <option value="">Select Class</option>
-                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Class</label>
@@ -1158,22 +1288,22 @@ export default function Exams() {
 
       {/* Edit Exam Modal */}
       {isEditExamModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-xl font-bold text-slate-900">Edit Exam</h3>
               <button 
                 onClick={() => {
                   setIsEditExamModalOpen(false);
                   setSelectedExamForEdit(null);
-                  setExamForm({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', full_marks: '100' });
+                  setExamForm({ name: '', date: format(new Date(), 'yyyy-MM-dd'), class_id: '', subject_max_marks: [] });
                 }} 
                 className="p-2 hover:bg-slate-100 rounded-full transition-colors"
               >
                 <X className="w-6 h-6 text-slate-400" />
               </button>
             </div>
-            <form onSubmit={handleUpdateExam} className="p-6 space-y-4">
+            <form onSubmit={handleUpdateExam} className="max-h-[calc(92vh-88px)] overflow-y-auto p-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Exam Name</label>
                 <input 
@@ -1194,18 +1324,6 @@ export default function Exams() {
                   value={examForm.date}
                   onChange={(e) => setExamForm({...examForm, date: e.target.value})}
                 />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Class</label>
-                <select 
-                  required
-                  className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                  value={examForm.class_id}
-                  onChange={(e) => setExamForm({...examForm, class_id: e.target.value})}
-                >
-                  <option value="">Select Class</option>
-                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Class</label>
@@ -1511,7 +1629,7 @@ export default function Exams() {
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => printReport(`${activeReportType || 'report'}-report`.toUpperCase(), activeReportRows)}
+                  onClick={() => activeReportType === 'individual' ? printIndividualReportCard() : printReport(`${activeReportType || 'report'}-report`.toUpperCase(), activeReportRows)}
                   className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-white/25"
                 >
                   <Printer size={16} />
@@ -1539,60 +1657,83 @@ export default function Exams() {
                   <p className="mt-2 text-sm text-slate-500">Try changing the filters and generate the report again.</p>
                 </div>
               ) : activeReportType === 'individual' ? (
-                <div className="space-y-6 p-8">
-                  <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-6">
-                    <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Student</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">{activeReportRows[0]?.student_name || '--'}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Reg No</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">{activeReportRows[0]?.reg_no || '--'}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Class</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">{activeReportRows[0]?.class_name || '--'}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Reports</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">{activeReportRows.length}</div>
-                      </div>
+                <div className="p-8">
+                  {!individualReportCard ? (
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-8 text-center text-slate-500">
+                      No individual report found for the selected filters.
                     </div>
-                  </div>
-
-                  {activeReportRows.map((row, index) => (
-                    <section key={`${row.reg_no}-${row.exam_name}-${index}`} className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-                      <div className="border-b border-slate-100 bg-slate-50 px-6 py-4">
-                        <h4 className="text-base font-bold text-slate-900">{row.exam_name}</h4>
-                        <p className="mt-1 text-sm text-slate-500">Total Marks: {row.total_marks} | Percentage: {row.percentage}</p>
+                  ) : (
+                    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 p-6">
+                        <div className="grid gap-4 md:grid-cols-[88px_1fr]">
+                          <div className="flex h-20 items-center justify-center rounded-xl border border-slate-300 bg-slate-50 text-lg font-black text-slate-700">
+                            SVM
+                          </div>
+                          <div className="rounded-xl border border-slate-300 px-6 py-4 text-center">
+                            <div className="text-2xl font-black tracking-tight text-slate-900">SVM CLASSES, DIGAPAHANDI</div>
+                            <div className="mt-1 text-sm font-semibold uppercase tracking-wide text-slate-600">SSVM ABASIKA HIGHER SECONDARY SCHOOL</div>
+                          </div>
+                        </div>
+                        <div className="mt-5 grid gap-x-6 gap-y-2 text-sm md:grid-cols-[180px_1fr]">
+                          <div className="font-semibold text-slate-700">NAME:-</div>
+                          <div className="font-semibold text-slate-900">{individualReportCard.student_name || '--'}</div>
+                          <div className="font-semibold text-slate-700">FATHER'S NAME:-</div>
+                          <div className="font-semibold text-slate-900">{individualReportCard.father_name || '--'}</div>
+                          <div className="font-semibold text-slate-700">MOTHER'S NAME:-</div>
+                          <div className="font-semibold text-slate-900">{individualReportCard.mother_name || '--'}</div>
+                          <div className="font-semibold text-slate-700">ROLL NO:-</div>
+                          <div className="font-semibold text-slate-900">{individualReportCard.roll_no || individualReportCard.reg_no || '--'}</div>
+                        </div>
                       </div>
                       <div className="overflow-x-auto">
-                        <Table>
-                          <TableHead>
-                            <TableRow className="hover:bg-transparent">
-                              {subjectReportColumns.map((column) => (
-                                <TableHeaderCell key={column.name}>
-                                  {column.name} ({column.max_marks})
-                                </TableHeaderCell>
+                        <table className="min-w-full border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50">
+                              <th rowSpan={2} className="border border-slate-300 px-4 py-3 text-left text-sm font-bold text-slate-900">SUBJECT</th>
+                              {individualReportCard.exams.map((exam: any) => (
+                                <th key={exam.exam_id} colSpan={2} className="border border-slate-300 px-4 py-3 text-center text-sm font-bold text-slate-900">
+                                  {exam.exam_name}
+                                </th>
                               ))}
-                              <TableHeaderCell>Total Marks</TableHeaderCell>
-                              <TableHeaderCell>Percentage</TableHeaderCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            <TableRow>
-                              {subjectReportColumns.map((column) => (
-                                <TableCell key={column.name}>{(row as Record<string, string>)[column.name] || '-'}</TableCell>
+                            </tr>
+                            <tr className="bg-slate-50">
+                              {individualReportCard.exams.map((exam: any) => (
+                                <React.Fragment key={`sub-${exam.exam_id}`}>
+                                  <th className="border border-slate-300 px-3 py-2 text-center text-xs font-bold text-slate-700">FULL MARK</th>
+                                  <th className="border border-slate-300 px-3 py-2 text-center text-xs font-bold text-slate-700">APPERED MARK</th>
+                                </React.Fragment>
                               ))}
-                              <TableCell className="font-medium text-slate-900">{row.total_marks}</TableCell>
-                              <TableCell className="font-medium text-slate-900">{row.percentage}</TableCell>
-                            </TableRow>
-                          </TableBody>
-                        </Table>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {individualReportCard.subjects.map((subject: any) => (
+                              <tr key={subject.subject_name}>
+                                <td className="border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900">{subject.subject_name}</td>
+                                {individualReportCard.exams.map((exam: any) => {
+                                  const value = subject.values?.[Number(exam.exam_id)];
+                                  return (
+                                    <React.Fragment key={`${subject.subject_name}-${exam.exam_id}`}>
+                                      <td className="border border-slate-300 px-3 py-2 text-center text-sm text-slate-700">{formatMarkValue(value?.full_marks)}</td>
+                                      <td className="border border-slate-300 px-3 py-2 text-center text-sm font-medium text-slate-900">{formatMarkValue(value?.marks_obtained)}</td>
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                            <tr className="bg-slate-50">
+                              <td className="border border-slate-300 px-4 py-3 text-sm font-bold text-slate-900">TOTAL</td>
+                              {individualReportCard.totals.map((total: any) => (
+                                <React.Fragment key={`total-${total.exam_id}`}>
+                                  <td className="border border-slate-300 px-3 py-3 text-center text-sm font-bold text-slate-900">{formatMarkValue(total.full_marks)}</td>
+                                  <td className="border border-slate-300 px-3 py-3 text-center text-sm font-bold text-slate-900">{formatMarkValue(total.marks_obtained)}</td>
+                                </React.Fragment>
+                              ))}
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>
                     </section>
-                  ))}
+                  )}
                 </div>
               ) : (
                 <Table>

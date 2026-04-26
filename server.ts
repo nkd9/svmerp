@@ -131,8 +131,10 @@ function computeDynamicFees(student: any, feeStructures: any[]) {
 
 type FeeCategory = "admission" | "coaching" | "transport" | "entrance" | "fooding" | "hostel" | "old" | "other";
 type FeePaymentStage = "old" | "admission" | "other";
+type OldDueReason = "explicit_old_due_type" | "older_academic_bucket" | "legacy_manual_due" | null;
 const OLD_DUE_LEDGER_TYPES = new Set(["Coaching Fee", "Food Fee", "Hostel Fee", "Transport Fee", "Old Due Collection"]);
 const AUTO_CURRENT_FEE_REFERENCE = "Auto-created from student fee setup";
+const SYSTEM_OLD_DUE_COLLECTION_TYPE = "Old Due Collection";
 
 function getFeeCategory(value: unknown): FeeCategory {
   const type = String(value || "").toLowerCase();
@@ -144,6 +146,12 @@ function getFeeCategory(value: unknown): FeeCategory {
   if (type.includes("food")) return "fooding";
   if (type.includes("hostel")) return "hostel";
   return "other";
+}
+
+function isRestrictedManualOldDueType(value: unknown) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  return getFeeCategory(normalized) === "old" || normalized.toLowerCase() === SYSTEM_OLD_DUE_COLLECTION_TYPE.toLowerCase();
 }
 
 function getFeePaymentStage(fee: any, student: any, classNameById: Map<number, string>): FeePaymentStage {
@@ -168,6 +176,45 @@ function getFeePaymentStage(fee: any, student: any, classNameById: Map<number, s
   }
 
   return "other";
+}
+
+function getOldDueReason(fee: any, student: any, classNameById: Map<number, string>): OldDueReason {
+  const category = getFeeCategory(fee?.type);
+  if (category === "old") {
+    return "explicit_old_due_type";
+  }
+
+  const feeClassName = classNameById.get(Number(fee?.class_id)) || "";
+  const studentClassName = classNameById.get(Number(student?.class_id)) || "";
+  if (student && isOlderAcademicBucket(fee?.academic_session, feeClassName, student?.session, studentClassName)) {
+    return "older_academic_bucket";
+  }
+
+  const isLegacyOldDueLedger = OLD_DUE_LEDGER_TYPES.has(String(fee?.type || "")) && String(fee?.reference_no || "") !== AUTO_CURRENT_FEE_REFERENCE;
+  if (category !== "admission" && isLegacyOldDueLedger) {
+    return "legacy_manual_due";
+  }
+
+  return null;
+}
+
+function serializeFeeWithContext(fee: any, studentById: Map<number, any>, classNameById: Map<number, string>) {
+  const student = studentById.get(Number(fee.student_id)) || null;
+  const paymentStage = getFeePaymentStage(fee, student, classNameById);
+  const oldDueReason = getOldDueReason(fee, student, classNameById);
+
+  return {
+    ...stripMongoFields(fee),
+    student_name: student?.name || "Unknown Student",
+    student_reg_no: student?.reg_no || "",
+    student_phone: student?.phone || "",
+    student_session: student?.session || "",
+    student_class_name: classNameById.get(Number(student?.class_id)) || "",
+    class_name: classNameById.get(Number(fee.class_id)) || "",
+    payment_stage: paymentStage,
+    is_old_due: paymentStage === "old",
+    old_due_reason: oldDueReason,
+  };
 }
 
 function buildExpectedStudentFeeRows(student: any, feeStructures: any[]) {
@@ -295,6 +342,19 @@ async function syncExpectedPendingFeesForStudent(student: any) {
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function parseBooleanFlag(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function parseIdList(value: unknown) {
+  const raw = Array.isArray(value) ? value.join(",") : String(value || "");
+  return raw
+    .split(",")
+    .map((item) => toNumber(item.trim()))
+    .filter((item) => item > 0);
 }
 
 function normalizeAcademicClassName(value: unknown) {
@@ -834,11 +894,38 @@ async function startServer() {
     });
   });
 
-  app.get("/api/students", authenticateToken, async (_req, res) => {
+  app.get("/api/students", authenticateToken, async (req, res) => {
+    const query: Record<string, unknown> = {};
+    const status = String(req.query.status || "").trim();
+    const search = String(req.query.search || "").trim();
+    const classId = toNumber(req.query.class_id);
+    const ids = parseIdList(req.query.ids);
+    const limit = Math.min(Math.max(toNumber(req.query.limit), 0), 500);
+    const view = String(req.query.view || "").trim().toLowerCase();
+    const includeDynamicFees = view !== "summary" && !parseBooleanFlag(req.query.exclude_dynamic_fees);
+
+    if (status) {
+      query.status = status;
+    }
+    if (classId) {
+      query.class_id = classId;
+    }
+    if (ids.length > 0) {
+      query.id = { $in: ids };
+    }
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      query.$or = [
+        { name: regex },
+        { reg_no: regex },
+        { phone: regex },
+      ];
+    }
+
     const [students, classes, feeStructures] = await Promise.all([
-      Student.find().sort({ id: 1 }).lean(),
+      Student.find(query).sort({ id: 1 }).limit(limit || 0).lean(),
       ClassModel.find().lean(),
-      FeeStructure.find().lean()
+      includeDynamicFees ? FeeStructure.find().lean() : Promise.resolve([]),
     ]);
     const classMap = buildClassMap(classes.map((item) => stripMongoFields(item) as Record<string, unknown>));
 
@@ -846,7 +933,7 @@ async function startServer() {
       students.map((student) => ({
         ...stripMongoFields(student),
         class_name: classMap.get(student.class_id) || "",
-        dynamic_fees: computeDynamicFees(student, feeStructures)
+        ...(includeDynamicFees ? { dynamic_fees: computeDynamicFees(student, feeStructures) } : {}),
       })),
     );
   });
@@ -948,18 +1035,68 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees", authenticateToken, async (_req, res) => {
-    const [fees, students, classes] = await Promise.all([Fee.find().sort({ id: -1 }).lean(), Student.find().lean(), ClassModel.find().lean()]);
-    const studentMap = new Map(students.map((item) => [item.id, item.name]));
+  app.get("/api/fees", authenticateToken, async (req, res) => {
+    const query: Record<string, unknown> = {};
+    const feeId = toNumber(req.query.id);
+    const studentId = toNumber(req.query.student_id);
+    const status = String(req.query.status || "").trim();
+    const type = String(req.query.type || "").trim();
+    const referenceNo = String(req.query.reference_no || "").trim();
+    const paymentStageFilter = String(req.query.payment_stage || "").trim().toLowerCase();
+    const ids = parseIdList(req.query.ids);
+    const search = String(req.query.search || "").trim();
+    const limit = Math.min(Math.max(toNumber(req.query.limit), 0), 1000);
+
+    if (feeId) {
+      query.id = feeId;
+    } else if (ids.length > 0) {
+      query.id = { $in: ids };
+    }
+    if (studentId) {
+      query.student_id = studentId;
+    }
+    if (status) {
+      query.status = status;
+    }
+    if (type) {
+      query.type = type;
+    }
+    if (referenceNo) {
+      query.reference_no = referenceNo;
+    }
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      query.$or = [
+        { bill_no: regex },
+        { type: regex },
+        { reference_no: regex },
+        { remark: regex },
+      ];
+    }
+
+    const [fees, students, classes] = await Promise.all([
+      Fee.find(query).sort({ id: -1 }).limit(limit || 0).lean(),
+      Student.find().lean(),
+      ClassModel.find().lean(),
+    ]);
+    const studentMap = new Map(students.map((item) => [Number(item.id), item]));
     const classMap = new Map(classes.map((item) => [Number(item.id), String(item.name || "")]));
 
-    res.json(
-      fees.map((fee) => ({
-        ...stripMongoFields(fee),
-        student_name: studentMap.get(fee.student_id) || "Unknown Student",
-        class_name: classMap.get(Number(fee.class_id)) || "",
-      })),
-    );
+    let rows = fees.map((fee) => serializeFeeWithContext(fee, studentMap, classMap));
+    if (paymentStageFilter) {
+      rows = rows.filter((fee) => String(fee.payment_stage || "").toLowerCase() === paymentStageFilter);
+    }
+    if (search) {
+      const loweredSearch = search.toLowerCase();
+      rows = rows.filter((fee) =>
+        String(fee.student_name || "").toLowerCase().includes(loweredSearch) ||
+        String(fee.student_reg_no || "").toLowerCase().includes(loweredSearch) ||
+        String(fee.bill_no || "").toLowerCase().includes(loweredSearch) ||
+        String(fee.type || "").toLowerCase().includes(loweredSearch),
+      );
+    }
+
+    res.json(rows);
   });
 
   app.post("/api/fees", authenticateToken, requireAdmin, async (req, res) => {
@@ -1000,14 +1137,8 @@ async function startServer() {
         }
 
         const totalPendingAmount = pendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-        if (paymentAmount <= 0 || paymentAmount > totalPendingAmount) {
-          return res.status(400).json({ error: "Payment amount must be greater than 0 and cannot exceed the selected pending dues." });
-        }
         if (paymentDiscount < 0 || paymentDiscount > totalPendingAmount) {
           return res.status(400).json({ error: "Discount cannot be greater than the selected pending amount." });
-        }
-        if (paymentAmount + paymentDiscount !== totalPendingAmount) {
-          return res.status(400).json({ error: "Payment amount plus discount must match the selected pending fee." });
         }
 
         if (pendingFees.length > 1 && paymentDiscount > 0) {
@@ -1038,6 +1169,17 @@ async function startServer() {
         }
 
         const selectedStage = Array.from(selectedStages)[0] || "other";
+        const canPartiallyCollectOldDue = selectedStage === "old" && pendingFees.length === 1;
+        if (paymentAmount <= 0 || paymentAmount > totalPendingAmount) {
+          return res.status(400).json({ error: "Payment amount must be greater than 0 and cannot exceed the selected pending dues." });
+        }
+        if (canPartiallyCollectOldDue) {
+          if (paymentAmount + paymentDiscount > totalPendingAmount) {
+            return res.status(400).json({ error: "Payment amount plus discount cannot exceed the pending old due." });
+          }
+        } else if (paymentAmount + paymentDiscount !== totalPendingAmount) {
+          return res.status(400).json({ error: "Payment amount plus discount must match the selected pending fee." });
+        }
         const blockingOldDue = otherPendingFees.find((fee) => getFeePaymentStage(fee, paymentStudent, classNameById) === "old");
         if (selectedStage !== "old" && blockingOldDue) {
           return res.status(400).json({ error: "Cannot accept this payment. Please clear old dues first." });
@@ -1050,8 +1192,48 @@ async function startServer() {
 
         const receiptBillNo = await getNextReceiptBillNo();
         let updatedFees: any[] = [];
+        const settledAmount = paymentAmount + paymentDiscount;
+        const isPartialOldDuePayment = canPartiallyCollectOldDue && settledAmount < totalPendingAmount;
 
-        if (pendingFees.length === 1) {
+        if (isPartialOldDuePayment) {
+          const remainingAmount = Math.max(totalPendingAmount - settledAmount, 0);
+          if (remainingAmount > 0) {
+            const updatedPendingFee = await Fee.findOneAndUpdate(
+              { id: primaryFee.id },
+              {
+                $set: {
+                  amount: remainingAmount,
+                },
+              },
+              { returnDocument: "after" },
+            ).lean();
+
+            if (!updatedPendingFee) {
+              return res.status(404).json({ error: "Pending fee could not be updated." });
+            }
+          } else {
+            await Fee.deleteOne({ id: primaryFee.id });
+          }
+
+          const partialPaymentFeeId = await getNextSequence("fees");
+          const createdPaidFee = await Fee.create({
+            id: partialPaymentFeeId,
+            student_id: Number(primaryFee.student_id),
+            academic_session: primaryFee.academic_session || paymentStudent.session || "",
+            class_id: Number(primaryFee.class_id || paymentStudent.class_id || 0),
+            amount: paymentAmount,
+            type: "Old Due Collection",
+            date: paymentDate,
+            status: paymentStatus,
+            discount: paymentDiscount,
+            mode: paymentMode,
+            reference_no: paymentReference,
+            remark: paymentRemark,
+            bill_no: receiptBillNo,
+          });
+
+          updatedFees = [createdPaidFee.toObject()];
+        } else if (pendingFees.length === 1) {
           const updatedFee = await Fee.findOneAndUpdate(
             { id: primaryFee.id },
             {
@@ -1104,7 +1286,7 @@ async function startServer() {
           action: "settle_pending_fee",
           entity: "fee",
           entity_id: primaryUpdatedFee.id,
-          summary: `Settled ${updatedFees.length} fee row(s) for student ${primaryUpdatedFee.student_id}`,
+          summary: `${isPartialOldDuePayment ? "Partially collected old due for" : "Settled"} ${updatedFees.length} fee row(s) for student ${primaryUpdatedFee.student_id}`,
           before: pendingFees,
           after: updatedFees,
         });
@@ -1128,6 +1310,9 @@ async function startServer() {
         return res.status(404).json({ error: "Student not found" });
       }
       const requestedFeeType = String(req.body.type || "Fee Collection").trim();
+      if (isRestrictedManualOldDueType(requestedFeeType)) {
+        return res.status(400).json({ error: "Old due fee types are system-managed and cannot be created manually." });
+      }
       const isOtherFeePayment = getFeeCategory(requestedFeeType) === "other" && requestedFeeType.toLowerCase().includes("other");
       if (paymentStatus !== "pending" && !isOtherFeePayment) {
         return res.status(400).json({ error: "Payments must be collected against a pending fee row." });
@@ -1921,7 +2106,11 @@ async function startServer() {
 
   app.get("/api/fee-ledgers", authenticateToken, async (_req, res) => {
     const ledgers = await FeeLedger.find({ active: true }).sort({ name: 1 }).lean();
-    res.json(ledgers.map((item) => stripMongoFields(item)));
+    res.json(
+      ledgers
+        .map((item) => stripMongoFields(item))
+        .filter((item: any) => !isRestrictedManualOldDueType(item?.name)),
+    );
   });
 
   app.get("/api/admin/fee-ledgers", authenticateToken, requireAdmin, async (_req, res) => {
@@ -1931,6 +2120,9 @@ async function startServer() {
 
   app.post("/api/admin/fee-ledgers", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      if (isRestrictedManualOldDueType(req.body.name)) {
+        return res.status(400).json({ error: "Old due fee ledgers are reserved for system use and cannot be created manually." });
+      }
       const id = await getNextSequence("feeLedgers");
       const ledger = await FeeLedger.create({
         id,
@@ -1971,6 +2163,7 @@ async function startServer() {
       before: beforeStudent,
       after: student,
     });
+    await syncExpectedPendingFeesForStudent(student);
 
     res.json({ success: true });
   });
@@ -2053,6 +2246,9 @@ async function startServer() {
 
   app.post("/api/admin/fee-structures", authenticateToken, requireAdmin, async (req, res) => {
     try {
+      if (isRestrictedManualOldDueType(req.body.fee_type)) {
+        return res.status(400).json({ error: "Old due fee types cannot be added to fee structure." });
+      }
       const classId = toNumber(req.body.class_id);
       const classDoc = await ClassModel.findOne({ id: classId }).lean();
       if (!classDoc) {
@@ -2091,6 +2287,9 @@ async function startServer() {
       
       const before = await FeeStructure.findOne(query).lean();
       if (!before) return res.status(404).json({ error: "Fee Structure not found" });
+      if (isRestrictedManualOldDueType(before.fee_type)) {
+        return res.status(400).json({ error: "Old due fee types are system-managed and cannot be edited manually." });
+      }
 
       const updated = await FeeStructure.findOneAndUpdate(query, {
         $set: { amount: toNumber(req.body.amount) }
@@ -2264,6 +2463,7 @@ async function startServer() {
         Student.find({ id: { $in: studentIds } }).lean(),
         ClassModel.find().lean(),
       ]);
+      const studentById = new Map(students.map((student) => [Number(student.id), student]));
       const classNameById = new Map(classes.map((item) => [Number(item.id), String(item.name || "")]));
       const targetClassName = classNameById.get(targetClassId) || "";
       const targetStream = getCollegeStreamLabel(targetClassName);
@@ -2277,15 +2477,16 @@ async function startServer() {
       const rows = students.map((student) => {
         const currentClassName = classNameById.get(Number(student.class_id)) || "";
         const oldPending = fees
-          .filter((fee) =>
-            Number(fee.student_id) === Number(student.id) &&
-            isOlderAcademicBucket(
-              fee.academic_session,
-              classNameById.get(Number(fee.class_id)) || "",
-              targetSession,
-              targetClassName,
-            ),
-          )
+          .filter((fee) => Number(fee.student_id) === Number(student.id))
+          .filter((fee) => getFeePaymentStage(
+            fee,
+            {
+              ...studentById.get(Number(student.id)),
+              class_id: targetClassId,
+              session: targetSession,
+            },
+            classNameById,
+          ) === "old")
           .reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
         const alreadyCreated = fees
           .filter((fee) =>
@@ -2435,7 +2636,11 @@ async function startServer() {
 
   app.get("/api/fee-ledgers", authenticateToken, async (req, res) => {
     const ledgers = await FeeLedger.find({ active: true }).sort({ name: 1 }).lean();
-    res.json(ledgers.map((item) => stripMongoFields(item)));
+    res.json(
+      ledgers
+        .map((item) => stripMongoFields(item))
+        .filter((item: any) => !isRestrictedManualOldDueType(item?.name)),
+    );
   });
 
   app.delete("/api/admin/students/:id", authenticateToken, requireAdmin, async (req, res) => {

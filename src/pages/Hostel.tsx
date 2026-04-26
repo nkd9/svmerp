@@ -25,7 +25,7 @@ export default function Hostel() {
     const [hostelsRes, roomsRes, studentsRes] = await Promise.all([
       fetch('/api/hostels', { headers }),
       fetch('/api/rooms', { headers }),
-      fetch('/api/students', { headers })
+      fetch('/api/students?status=active&view=summary&limit=200', { headers })
     ]);
     setHostels(await hostelsRes.json());
     setRooms(await roomsRes.json());

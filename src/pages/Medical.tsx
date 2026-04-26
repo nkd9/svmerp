@@ -19,13 +19,22 @@ import {
 export default function Medical() {
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchStudents();
-  }, []);
+  }, [searchQuery]);
 
   const fetchStudents = async () => {
-    const res = await fetch('/api/students', {
+    const searchParams = new URLSearchParams({
+      status: 'active',
+      view: 'summary',
+      limit: '100',
+    });
+    if (searchQuery.trim()) {
+      searchParams.set('search', searchQuery.trim());
+    }
+    const res = await fetch(`/api/students?${searchParams.toString()}`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     });
     setStudents(await res.json());
@@ -70,7 +79,13 @@ export default function Medical() {
         <TableToolbar>
           <h3 className="font-bold text-slate-900">Student Health Directory</h3>
           <div className="relative w-64">
-            <Input type="text" placeholder="Search student health record..." leftIcon={<Search className="h-4 w-4" />} />
+            <Input
+              type="text"
+              placeholder="Search student health record..."
+              leftIcon={<Search className="h-4 w-4" />}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
         </TableToolbar>
         <div className="overflow-x-auto">

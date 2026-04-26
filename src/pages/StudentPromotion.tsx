@@ -59,7 +59,7 @@ export default function StudentPromotion() {
     try {
       const token = localStorage.getItem('token');
       const [stuRes, clsRes] = await Promise.all([
-        fetch('/api/students', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/students?status=active&view=summary&limit=500', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/classes', { headers: { Authorization: `Bearer ${token}` } })
       ]);
 

@@ -519,9 +519,9 @@ export default function AdminSettings() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      {/* <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         Recommended production setup: keep only <span className="font-semibold">XI Arts, XII Arts, XI Science, XII Science, Passed Out</span> as classes and only <span className="font-semibold">Arts</span> and <span className="font-semibold">Science</span> as streams.
-      </div>
+      </div> */}
 
       {/* Production Safety Tools disabled for now. Keep this block available for later re-enable. */}
       {SHOW_PRODUCTION_SAFETY_TOOLS && (

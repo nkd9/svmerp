@@ -1,8 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, IndianRupee, Download, Printer, AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
-import { useAuth } from '../context/AuthContext';
-import { academicSessionsMatch, convertLegacySessionLabel } from '../lib/academicSessions';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Download, RefreshCw, Search } from 'lucide-react';
 import {
   Button,
   EmptyTableRow,
@@ -21,464 +18,198 @@ import {
 } from '../components/ui';
 
 const OLD_DUE_PAGE_SIZE = 20;
-const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
-const AUTO_CURRENT_FEE_REFERENCE = 'Auto-created from student fee setup';
+const IMPORTED_OLD_DUE_REFERENCE = 'Imported from legacy old due report';
+
+type OldDueFeeRow = {
+  id: number;
+  bill_no: string;
+  type: string;
+  amount: number;
+  reference_no?: string;
+  remark?: string;
+  status: string;
+  academic_session?: string;
+  student_name?: string;
+  student_reg_no?: string;
+  student_phone?: string;
+  student_class_name?: string;
+  class_name?: string;
+  old_due_reason?: string;
+};
 
 const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
-
-const formatReceiptDateTime = (date: string) => {
-  try {
-    return format(new Date(date), 'yyyy-MM-dd, HH:mm:ss');
-  } catch {
-    return date;
-  }
-};
-
-const getFeeCategory = (value?: string) => {
-  const type = String(value || '').toLowerCase();
-  if (type.includes('old due')) return 'old';
-  if (type.includes('admission')) return 'admission';
-  if (type.includes('coaching') || type.includes('tuition')) return 'coaching';
-  if (type.includes('transport')) return 'transport';
-  if (type.includes('entrance')) return 'entrance';
-  if (type.includes('food')) return 'fooding';
-  if (type.includes('hostel')) return 'hostel';
-  return 'other';
-};
-
-const getAcademicSessionStartYear = (value?: string) => {
-  const match = /^(\d{4})-(?:\d{2}|\d{4})$/.exec(String(value || '').trim());
-  return match ? Number(match[1]) : 0;
-};
-
-const getCollegeYearRank = (className?: string) => {
-  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
-  if (/\b(XI|1ST YEAR|FIRST YEAR)\b/.test(normalized)) return 1;
-  if (/\b(XII|2ND YEAR|SECOND YEAR)\b/.test(normalized)) return 2;
-  return 0;
-};
-
-const getCollegeStreamName = (className?: string) => {
-  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
-  if (normalized.includes('ARTS')) return 'ARTS';
-  if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'SCIENCE';
-  return '';
-};
-
-const isOlderAcademicBucket = (fee: any, student: any, feeClassName: string) => {
-  const feeYear = getAcademicSessionStartYear(fee?.academic_session);
-  const studentYear = getAcademicSessionStartYear(student?.session);
-  if (feeYear && studentYear && feeYear < studentYear) return true;
-  if (feeYear && studentYear && feeYear > studentYear) return false;
-
-  const feeRank = getCollegeYearRank(feeClassName);
-  const studentRank = getCollegeYearRank(student?.class_name);
-  const feeStream = getCollegeStreamName(feeClassName);
-  const studentStream = getCollegeStreamName(student?.class_name);
-
-  if (feeRank && studentRank) {
-    if (feeStream && studentStream && feeStream === studentStream) return feeRank < studentRank;
-    return feeRank < studentRank;
-  }
-
-  return false;
-};
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
+  }).format(value);
 
 export default function OldDueReport() {
-  const { user } = useAuth();
-  const [fees, setFees] = useState<any[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
-  const [classes, setClasses] = useState<any[]>([]);
-  
-  const [oldDueSession, setOldDueSession] = useState('');
-  const [oldDueClass, setOldDueClass] = useState('');
+  const [rows, setRows] = useState<OldDueFeeRow[]>([]);
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingFee, setEditingFee] = useState<any | null>(null);
-  const [editFormData, setEditFormData] = useState({ amount: '', admin_password: '' });
+  const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<{ title: string; message: string; tone?: 'success' | 'error' | 'info' } | null>(null);
 
-  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
-  const [payingFee, setPayingFee] = useState<any | null>(null);
-  const [payFormData, setPayFormData] = useState({
-    amount: '',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    mode: 'Cash',
-    reference_no: '',
-    discount: '0'
-  });
-  const [deleteAction, setDeleteAction] = useState<{ fee: any; admin_password: string } | null>(null);
-
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, []);
 
   const fetchData = async () => {
-    const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
-    const [feesRes, studentsRes, classesRes] = await Promise.all([
-      fetch('/api/fees', { headers }),
-      fetch('/api/students', { headers }),
-      fetch('/api/classes', { headers })
-    ]);
-    setFees(await feesRes.json());
-    setStudents(await studentsRes.json());
-    setClasses(await classesRes.json());
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/fees?status=pending&reference_no=${encodeURIComponent(IMPORTED_OLD_DUE_REFERENCE)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      const contentType = res.headers.get('content-type') || '';
+      const rawBody = await res.text();
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          rawBody.startsWith('<!DOCTYPE') || rawBody.startsWith('<html')
+            ? 'Old due API returned HTML instead of JSON. Please check the deployed backend.'
+            : 'Old due API returned an unexpected response.',
+        );
+      }
+
+      const data = JSON.parse(rawBody) as Array<Record<string, unknown>> | { error?: string };
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error || 'Failed to load old due data.');
+      }
+
+      const nextRows = Array.isArray(data)
+        ? data
+            .filter((row) => String(row.reference_no || '') === IMPORTED_OLD_DUE_REFERENCE)
+            .map((row) => ({
+            ...row,
+            amount: Number(row.amount || 0),
+            bill_no: String(row.bill_no || ''),
+            type: String(row.type || ''),
+            student_name: String(row.student_name || ''),
+            student_reg_no: String(row.student_reg_no || ''),
+            student_phone: String(row.student_phone || ''),
+            student_class_name: String(row.student_class_name || ''),
+            }))
+        : [];
+
+      setRows(nextRows);
+    } catch (error: any) {
+      setRows([]);
+      setNotice({
+        title: 'Old Due Load Failed',
+        message: error?.message || 'Failed to load old due data.',
+        tone: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const classNameById = useMemo(
-    () => new Map(classes.map((c) => [Number(c.id), String(c.name || '')])),
-    [classes]
-  );
-
-  const feesWithStudent = useMemo(() => fees.map((fee) => ({
-    ...fee,
-    student: students.find((student) => student.id === fee.student_id) || null,
-  })), [fees, students]);
-
-  const isOldDueFee = (fee: any) => {
-    const feeClassName = String(classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || fee.student?.class_name || '');
-    const category = getFeeCategory(fee.type);
-    if (category === 'old') return true;
-    if (fee.student && isOlderAcademicBucket(fee, fee.student, feeClassName)) return true;
-
-    return category !== 'admission' &&
-      OLD_DUE_LEDGER_TYPES.has(String(fee.type || '')) &&
-      String(fee.reference_no || '') !== AUTO_CURRENT_FEE_REFERENCE;
-  };
-
-  const sessionOptions = useMemo(
-    () => (Array.from(new Set(
-      feesWithStudent
-        .filter(isOldDueFee)
-        .map((fee) => convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || '')))
-        .filter(Boolean)
-    )) as string[]).sort((a, b) => b.localeCompare(a)),
-    [feesWithStudent, classNameById]
-  );
 
   const classOptions = useMemo(
-    () => (Array.from(new Set(
-      feesWithStudent
-        .filter(isOldDueFee)
-        .map((fee) => String(classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || fee.student?.class_name || ''))
-        .filter(Boolean)
-    )) as string[]).sort((a, b) => a.localeCompare(b)),
-    [classNameById, feesWithStudent]
+    () =>
+      Array.from(
+        new Set(
+          rows
+            .map((row) => String(row.class_name || row.student_class_name || '').trim())
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [rows],
   );
 
-  const filteredOldDues = useMemo(() => {
-    let result = feesWithStudent.filter(fee => {
-      if (fee.status !== 'pending') return false;
-      return isOldDueFee(fee);
-    });
+  const categoryOptions = useMemo(
+    () =>
+      Array.from(new Set(rows.map((row) => String(row.type || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [rows],
+  );
 
-    if (oldDueSession) {
-      result = result.filter(fee => academicSessionsMatch(String(fee.academic_session || fee.student?.session || ''), oldDueSession));
+  const filteredRows = useMemo(() => {
+    let result = [...rows];
+
+    if (selectedClass) {
+      result = result.filter((row) => String(row.class_name || row.student_class_name || '').trim() === selectedClass);
     }
 
-    if (oldDueClass) {
-      result = result.filter(fee => String(classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || '') === oldDueClass);
+    if (selectedCategory) {
+      result = result.filter((row) => String(row.type || '').trim() === selectedCategory);
     }
 
     if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      result = result.filter(fee => 
-        String(fee.student?.name || '').toLowerCase().includes(q) ||
-        String(fee.student?.reg_no || '').toLowerCase().includes(q) ||
-        String(fee.bill_no || '').toLowerCase().includes(q)
+      const query = searchQuery.trim().toLowerCase();
+      result = result.filter((row) =>
+        [
+          row.bill_no,
+          row.student_reg_no,
+          row.student_name,
+          row.student_phone,
+          row.class_name,
+          row.student_class_name,
+          row.type,
+          row.reference_no,
+          row.old_due_reason,
+        ].some((value) => String(value || '').toLowerCase().includes(query)),
       );
     }
 
-    return result.sort((a, b) => (a.student?.name || '').localeCompare(b.student?.name || ''));
-  }, [feesWithStudent, oldDueSession, oldDueClass, searchQuery, classNameById]);
-  const totalPages = Math.ceil(filteredOldDues.length / OLD_DUE_PAGE_SIZE);
-  const paginatedOldDues = useMemo(() => {
+    return result.sort((a, b) => {
+      const nameCompare = String(a.student_name || '').localeCompare(String(b.student_name || ''));
+      if (nameCompare !== 0) {
+        return nameCompare;
+      }
+      return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
+    });
+  }, [rows, searchQuery, selectedCategory, selectedClass]);
+
+  const filteredTotal = useMemo(
+    () => filteredRows.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    [filteredRows],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / OLD_DUE_PAGE_SIZE));
+
+  const paginatedRows = useMemo(() => {
     const start = (currentPage - 1) * OLD_DUE_PAGE_SIZE;
-    return filteredOldDues.slice(start, start + OLD_DUE_PAGE_SIZE);
-  }, [filteredOldDues, currentPage]);
+    return filteredRows.slice(start, start + OLD_DUE_PAGE_SIZE);
+  }, [currentPage, filteredRows]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [oldDueSession, oldDueClass, searchQuery]);
-
-  const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (user?.role !== 'admin' || !editingFee) {
-      setNotice({ title: 'Admin Required', message: 'Only admin can modify financial information.', tone: 'error' });
-      return;
-    }
-    if (!editFormData.admin_password) {
-      setNotice({ title: 'Password Required', message: 'Admin password is required.', tone: 'error' });
-      return;
-    }
-    
-    const res = await fetch(`/api/fees/${editingFee.id}`, {
-      method: 'PUT',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ amount: editFormData.amount, admin_password: editFormData.admin_password })
-    });
-    
-    if (res.ok) {
-      setIsEditModalOpen(false);
-      setEditingFee(null);
-      fetchData();
-      const data = await res.json();
-      setNotice({
-        title: data.deleted ? 'Fee Removed' : 'Fee Updated',
-        message: data.deleted ? 'Zero amount fee row removed successfully.' : 'Fee updated successfully.',
-        tone: 'success'
-      });
-    } else {
-      const data = await res.json();
-      setNotice({ title: 'Update Failed', message: data.error || 'Failed to update fee.', tone: 'error' });
-    }
-  };
-
-  const handleDeleteSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (user?.role !== 'admin' || !deleteAction) {
-      setNotice({ title: 'Admin Required', message: 'Only admin can delete financial information.', tone: 'error' });
-      return;
-    }
-    if (!deleteAction.admin_password) {
-      setNotice({ title: 'Password Required', message: 'Admin password is required.', tone: 'error' });
-      return;
-    }
-
-    const res = await fetch(`/api/admin/fees/${deleteAction.fee.id}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ admin_password: deleteAction.admin_password })
-    });
-
-    if (res.ok) {
-      setDeleteAction(null);
-      fetchData();
-      setNotice({ title: 'Fee Deleted', message: 'Pending fee row deleted successfully.', tone: 'success' });
-    } else {
-      const data = await res.json();
-      setNotice({ title: 'Delete Failed', message: data.error || 'Failed to delete fee.', tone: 'error' });
-    }
-  };
-
-  const handlePaySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (user?.role !== 'admin' || !payingFee) {
-      setNotice({ title: 'Admin Required', message: 'Only admin can process payments.', tone: 'error' });
-      return;
-    }
-
-    const payload = {
-      student_id: String(payingFee.student_id),
-      amount: payFormData.amount,
-      type: payingFee.type,
-      date: payFormData.date,
-      status: 'paid',
-      discount: payFormData.discount,
-      mode: payFormData.mode,
-      reference_no: payFormData.reference_no,
-      bill_no: payingFee.bill_no || '',
-      pending_fee_ids: [payingFee.id]
-    };
-
-    const res = await fetch('/api/fees', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (res.ok) {
-      const createdFee = await res.json();
-      const printableFee = createdFee.fee || {
-        ...payload,
-        student_name: payingFee.student?.name || '',
-        id: createdFee.id
-      };
-      handlePrintReceipt(printableFee);
-      setIsPayModalOpen(false);
-      setPayingFee(null);
-      fetchData();
-    } else {
-      const data = await res.json();
-      setNotice({ title: 'Payment Failed', message: data.error || 'Failed to process payment.', tone: 'error' });
-    }
-  };
-
-  const openEditModal = (fee: any) => {
-    setEditingFee(fee);
-    setEditFormData({ amount: String(fee.amount), admin_password: '' });
-    setIsEditModalOpen(true);
-  };
-
-  const openPayModal = (fee: any) => {
-    setPayingFee(fee);
-    setPayFormData({
-      amount: String(fee.amount),
-      date: format(new Date(), 'yyyy-MM-dd'),
-      mode: 'Cash',
-      reference_no: '',
-      discount: '0'
-    });
-    setIsPayModalOpen(true);
-  };
-
-  const openDeleteModal = (fee: any) => {
-    if (user?.role !== 'admin') {
-      setNotice({ title: 'Admin Required', message: 'Only admin can delete financial information.', tone: 'error' });
-      return;
-    }
-    if (fee.status === 'paid') {
-      setNotice({ title: 'Paid Receipt', message: 'Paid receipts cannot be deleted from this report.', tone: 'error' });
-      return;
-    }
-    setDeleteAction({ fee, admin_password: '' });
-  };
-
-  const handleDiscountChange = (discountValue: string) => {
-    const discount = Number(discountValue || 0);
-    const baseAmount = payingFee ? Number(payingFee.amount || 0) : 0;
-    const safeDiscount = Math.min(Math.max(discount, 0), baseAmount);
-    const finalAmount = Math.max(baseAmount - safeDiscount, 0);
-    setPayFormData(prev => ({
-      ...prev,
-      discount: String(safeDiscount),
-      amount: String(finalAmount),
-    }));
-  };
-
-  const handlePrintReceipt = (fee: any) => {
-    const student = students.find((item) => item.id === Number(fee.student_id));
-    const receiptDate = formatReceiptDateTime(fee.date);
-    const particulars = fee.type === 'Fee Collection' ? 'Fee' : fee.type;
-    const paidBy = fee.mode || 'Cash';
-    const referenceNo = fee.reference_no ? `<div class="footer-note">Reference No.: ${fee.reference_no}</div>` : '';
-    const amount = Number(fee.amount || 0);
-
-    const receiptHtml = `
-      <div class="receipt">
-        <div class="receipt-title">Money Receipt</div>
-        <div class="school-name">SVM CLASSES</div>
-        <div class="school-meta">Amrit Vihar, Digapahandi (Ganjam)</div>
-        <div class="school-meta">Ph:9439326301, www.svmclasses.com</div>
-
-        <div class="row spread">
-          <span><strong>Receipt No.:</strong> ${fee.bill_no || fee.id}</span>
-          <span><strong>Date :</strong> ${receiptDate}</span>
-        </div>
-
-        <div class="row"><strong>Name :</strong> ${student?.name || fee.student_name || ''}</div>
-        <div class="row spread">
-          <span><strong>Class.:</strong> ${student?.class_name || ''}</span>
-          <span><strong>Student Id :</strong> ${student?.reg_no || ''}</span>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Sr. No.</th>
-              <th>Particulars</th>
-              <th>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>1</td>
-              <td>${particulars}</td>
-              <td>${amount}</td>
-            </tr>
-            <tr>
-              <td colspan="2"><strong>Paid By : ${paidBy}</strong></td>
-              <td><strong>${amount}/-</strong></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="footer-note">All fees listed above are final and non-refundable once paid</div>
-        ${referenceNo}
-      </div>
-    `;
-
-    const printWindow = window.open('', '_blank', 'width=1100,height=700');
-    if (!printWindow) {
-      setNotice({ title: 'Print Blocked', message: 'Unable to open print window. Please allow pop-ups and try again.', tone: 'error' });
-      return;
-    }
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Receipt ${fee.bill_no || fee.id}</title>
-          <style>
-            body { margin: 0; padding: 20px; font-family: Arial, sans-serif; background: #fff; color: #111827; }
-            .sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-            .receipt { border: 1px solid #9ca3af; padding: 8px 10px; }
-            .receipt-title { text-align: center; text-decoration: underline; font-size: 13px; margin-bottom: 4px; }
-            .school-name { text-align: center; font-size: 24px; font-weight: 700; margin-bottom: 4px; }
-            .school-meta { text-align: center; font-size: 13px; margin-bottom: 2px; }
-            .row { font-size: 13px; margin-top: 8px; }
-            .spread { display: flex; justify-content: space-between; gap: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
-            th, td { border: 1px solid #9ca3af; padding: 5px 6px; text-align: left; }
-            th:last-child, td:last-child { text-align: right; }
-            .footer-note { margin-top: 8px; font-size: 11px; }
-          </style>
-        </head>
-        <body>
-          <div class="sheet">
-            ${receiptHtml}
-            ${receiptHtml}
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-  };
+  }, [searchQuery, selectedCategory, selectedClass]);
 
   const handleExport = () => {
-    if (!filteredOldDues.length) {
-      setNotice({ title: 'No Data', message: 'No data available to export.', tone: 'info' });
+    if (!filteredRows.length) {
+      setNotice({ title: 'No Data', message: 'No old due rows available to export.', tone: 'info' });
       return;
     }
 
-    const rows = filteredOldDues.map((fee) => {
-      const studentClass = classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || '';
-      const academicYear = convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || ''));
-      return {
-        'Receipt No': fee.bill_no,
-        'Registration No': fee.student?.reg_no || '',
-        'Student Name': fee.student?.name || '',
-        'Phone Number': fee.student?.phone || '',
-        'Class': studentClass,
-        'Educational Year': academicYear,
-        'Fee Ledger': fee.type,
-        'Due Date': fee.date,
-        'Pending Amount': Number(fee.amount || 0)
-      };
-    });
+    const exportRows = filteredRows.map((row) => ({
+      'Bill No': row.bill_no,
+      'Registration No': row.student_reg_no || '',
+      Name: row.student_name || '',
+      Phone: row.student_phone || '',
+      'Due Amount': Number(row.amount || 0),
+      Class: row.class_name || row.student_class_name || '',
+      Category: row.type,
+      Reference: row.reference_no || '',
+    }));
 
-    const headers = Object.keys(rows[0]);
-    const escapeCell = (v: any) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const headers = Object.keys(exportRows[0]);
+    const escapeCell = (value: unknown) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
     const html = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
         <head><meta charset="UTF-8" /></head>
         <body>
           <table>
-            <thead><tr>${headers.map(h => `<th>${escapeCell(h)}</th>`).join('')}</tr></thead>
-            <tbody>${rows.map(row => `<tr>${headers.map((h:any) => `<td>${escapeCell((row as any)[h])}</td>`).join('')}</tr>`).join('')}</tbody>
+            <thead><tr>${headers.map((header) => `<th>${escapeCell(header)}</th>`).join('')}</tr></thead>
+            <tbody>${exportRows
+              .map((row) => `<tr>${headers.map((header) => `<td>${escapeCell((row as Record<string, unknown>)[header])}</td>`).join('')}</tr>`)
+              .join('')}</tbody>
           </table>
         </body>
       </html>
@@ -488,7 +219,7 @@ export default function OldDueReport() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Old_Due_Report.xls`;
+    link.download = 'Old_Due_Report_Legacy.xls';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -497,367 +228,134 @@ export default function OldDueReport() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Old Due Report</h1>
-          <p className="text-slate-500">View, edit, and pay old pending dues directly.</p>
+          <p className="text-slate-500">
+            Local old due data imported from the old ERP and served directly from our database.
+          </p>
         </div>
-        <button
-          onClick={handleExport}
-          className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#4f6ef7] to-[#7d5fd6] px-4 py-2.5 font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:-translate-y-0.5"
-        >
-          <Download className="w-4 h-4" />
-          Export to Excel
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void fetchData()}
+            disabled={loading}
+            leftIcon={<RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />}
+          >
+            Refresh Data
+          </Button>
+          <Button type="button" onClick={handleExport} leftIcon={<Download className="h-4 w-4" />}>
+            Export to Excel
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="rounded-2xl border border-rose-100 bg-gradient-to-br from-rose-50 to-white p-5 shadow-sm">
+          <p className="text-sm font-semibold text-slate-500">Total Due Amount</p>
+          <p className="mt-2 text-3xl font-extrabold tracking-tight text-rose-600">{formatCurrency(filteredTotal)}</p>
+          <p className="mt-2 text-xs text-slate-500">Calculated from imported old due rows in our database.</p>
+        </div>
+        <div className="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
+          <p className="text-sm font-semibold text-slate-500">Total Rows</p>
+          <p className="mt-2 text-3xl font-extrabold tracking-tight text-sky-700">{filteredRows.length}</p>
+          <p className="mt-2 text-xs text-slate-500">Pending old due rows currently stored in our database.</p>
+        </div>
       </div>
 
       <TableContainer>
-        <TableToolbar className="grid grid-cols-1 md:grid-cols-3">
+        <TableToolbar className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">Educational Year</label>
-            <Select
-              value={oldDueSession}
-              onChange={(e) => setOldDueSession(e.target.value)}
-              className="bg-white"
-            >
-              <option value="">All Educational Years</option>
-              {sessionOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Class</label>
+            <Select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="bg-white">
+              <option value="">All Classes</option>
+              {classOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </Select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">Class</label>
-            <Select
-              value={oldDueClass}
-              onChange={(e) => setOldDueClass(e.target.value)}
-              className="bg-white"
-            >
-              <option value="">All Classes</option>
-              {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Category</label>
+            <Select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="bg-white">
+              <option value="">All Categories</option>
+              {categoryOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </Select>
           </div>
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Search</label>
-              <Input
-                type="text"
-                placeholder="Search by student, reg no, or receipt no..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                leftIcon={<Search className="h-4 w-4" />}
-                className="bg-white"
-              />
+            <Input
+              type="text"
+              placeholder="Search by bill no, student, phone, or category..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={<Search className="h-4 w-4" />}
+              className="bg-white"
+            />
           </div>
         </TableToolbar>
 
         <div className="overflow-x-auto">
-          <Table className="whitespace-nowrap">
+          <Table className="min-w-[980px]">
             <TableHead>
               <TableRow className="hover:bg-transparent">
-                <TableHeaderCell>Receipt No</TableHeaderCell>
-                <TableHeaderCell>Student</TableHeaderCell>
-                <TableHeaderCell>Class / Session</TableHeaderCell>
-                <TableHeaderCell>Fee Ledger</TableHeaderCell>
-                <TableHeaderCell>Amount</TableHeaderCell>
-                <TableHeaderCell>Due Date</TableHeaderCell>
-                {user?.role === 'admin' && (
-                  <TableHeaderCell className="text-center">Actions</TableHeaderCell>
-                )}
+                <TableHeaderCell>Bill No</TableHeaderCell>
+                <TableHeaderCell>Registration No</TableHeaderCell>
+                <TableHeaderCell>Name</TableHeaderCell>
+                <TableHeaderCell>Phone</TableHeaderCell>
+                <TableHeaderCell>Due Amount</TableHeaderCell>
+                <TableHeaderCell>Class</TableHeaderCell>
+                <TableHeaderCell>Category</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {paginatedOldDues.map((fee) => {
-                const studentClass = classNameById.get(Number(fee.class_id)) || classNameById.get(Number(fee.student?.class_id)) || '';
-                const session = convertLegacySessionLabel(String(fee.academic_session || fee.student?.session || ''));
-                
-                return (
-                  <TableRow key={fee.id}>
-                    <TableCell className="font-mono">{fee.bill_no}</TableCell>
-                    <TableCell>
-                      <div className="font-semibold text-slate-900">{fee.student?.name}</div>
-                      <div className="text-xs text-slate-500">{fee.student?.reg_no}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div>{studentClass}</div>
-                      <div className="text-xs text-slate-500">{session}</div>
-                    </TableCell>
-                    <TableCell className="bg-indigo-50/30 font-medium text-slate-700">
-                      {fee.type}
-                    </TableCell>
-                    <TableCell className="font-bold text-rose-600">{formatCurrency(Number(fee.amount))}</TableCell>
-                    <TableCell>{fee.date}</TableCell>
-                    {user?.role === 'admin' && (
-                      <TableCell className="space-x-2 text-center">
-                        <Button
-                          onClick={() => openEditModal(fee)}
-                          variant="outline"
-                          size="sm"
-                          className="border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          onClick={() => openPayModal(fee)}
-                          variant="outline"
-                          size="sm"
-                          className="border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                        >
-                          Pay
-                        </Button>
-                        <Button
-                          onClick={() => openDeleteModal(fee)}
-                          variant="outline"
-                          size="sm"
-                          className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
-                        >
-                          <Trash2 className="mr-1 h-3.5 w-3.5" />
-                          Delete
-                        </Button>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
-              {filteredOldDues.length === 0 && (
-                <EmptyTableRow colSpan={user?.role === 'admin' ? 7 : 6}>
-                    <div className="flex flex-col items-center justify-center text-slate-500">
-                      <AlertCircle className="w-8 h-8 mb-2 opacity-50" />
-                      <p className="text-sm">No pending old dues match your query.</p>
-                    </div>
+              {paginatedRows.map((row, index) => (
+                <TableRow key={`${row.id}-${row.bill_no}-${index}`}>
+                  <TableCell className="font-mono text-xs sm:text-sm">{row.bill_no}</TableCell>
+                  <TableCell className="font-mono text-xs sm:text-sm">{row.student_reg_no || '-'}</TableCell>
+                  <TableCell className="font-semibold text-slate-900">{row.student_name || '-'}</TableCell>
+                  <TableCell>{row.student_phone || '-'}</TableCell>
+                  <TableCell className="font-bold text-rose-600">{formatCurrency(Number(row.amount || 0))}</TableCell>
+                  <TableCell>{row.class_name || row.student_class_name || '-'}</TableCell>
+                  <TableCell>{row.type}</TableCell>
+                </TableRow>
+              ))}
+              {paginatedRows.length === 0 && (
+                <EmptyTableRow colSpan={7}>
+                  <div className="flex flex-col items-center justify-center text-slate-500">
+                    <AlertCircle className="mb-2 h-8 w-8 opacity-50" />
+                    <p className="text-sm">No old due rows match your filters.</p>
+                  </div>
                 </EmptyTableRow>
               )}
             </TableBody>
           </Table>
         </div>
+
         <Pagination
           page={currentPage}
           totalPages={totalPages}
-          totalItems={filteredOldDues.length}
+          totalItems={filteredRows.length}
           pageSize={OLD_DUE_PAGE_SIZE}
-          itemName="old dues"
+          itemName="old due rows"
           onPageChange={setCurrentPage}
         />
       </TableContainer>
 
-      {isEditModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">Edit Fee Amount</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                <Plus className="w-5 h-5 rotate-45 text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleEditSubmit} className="p-4 space-y-4">
-              <div className="space-y-1">
-                <h4 className="font-semibold text-slate-700 text-sm">{editingFee?.student?.name}</h4>
-                <p className="text-xs text-slate-500">{editingFee?.type} - {editingFee?.bill_no}</p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Amount</label>
-                <div className="relative">
-                  <IndianRupee className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    value={editFormData.amount}
-                    onChange={(e) => setEditFormData((current) => ({ ...current, amount: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Admin Password</label>
-                <input
-                  required
-                  type="password"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  value={editFormData.admin_password}
-                  onChange={(e) => setEditFormData((current) => ({ ...current, admin_password: e.target.value }))}
-                  placeholder="Confirm admin password"
-                />
-              </div>
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-2.5 font-bold transition-all shadow-lg shadow-emerald-200"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isPayModalOpen && payingFee && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <h3 className="text-lg font-bold text-slate-900">Process Fee Payment</h3>
-              <button onClick={() => setIsPayModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                <Plus className="w-5 h-5 rotate-45 text-slate-500" />
-              </button>
-            </div>
-            <form onSubmit={handlePaySubmit} className="p-5 space-y-5 flex flex-col h-[calc(100vh-8rem)] sm:h-auto max-h-[85vh] overflow-y-auto">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-slate-500 text-xs font-semibold uppercase">Student</p>
-                    <p className="font-bold text-slate-900 mt-0.5">{payingFee.student?.name}</p>
-                    <p className="text-slate-500 text-xs mt-0.5">{payingFee.student?.reg_no}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 text-xs font-semibold uppercase">Fee Details</p>
-                    <p className="font-bold text-slate-900 mt-0.5">{payingFee.type}</p>
-                    <p className="text-slate-500 font-mono text-xs mt-0.5">{payingFee.bill_no}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5 border border-slate-200 rounded-xl p-3 bg-white">
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Base Amount</label>
-                    <div className="font-bold text-lg text-slate-700">{formatCurrency(Number(payingFee?.amount || 0))}</div>
-                  </div>
-                  <div className="space-y-1.5 border border-amber-200 bg-amber-50 rounded-xl p-3">
-                    <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Discount</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full bg-transparent border-b border-amber-300 py-1 px-0 text-amber-900 font-bold focus:border-amber-600 focus:ring-0"
-                      value={payFormData.discount}
-                      onChange={(e) => handleDiscountChange(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 border-2 border-emerald-500 rounded-xl p-4 bg-emerald-50/50 shadow-sm">
-                  <label className="text-sm font-bold text-emerald-800">Final Amount To Pay</label>
-                  <div className="relative mt-2">
-                    <IndianRupee className="absolute left-3 top-1/2 h-6 w-6 -translate-y-1/2 text-emerald-600" />
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      readOnly
-                      className="w-full cursor-not-allowed rounded-lg border border-emerald-200 bg-white py-3 pl-12 pr-4 text-xl font-black text-emerald-900 shadow-inner outline-none"
-                      value={payFormData.amount}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-slate-700">Payment Date</label>
-                  <input
-                    type="date"
-                    required
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                    value={payFormData.date}
-                    onChange={(e) => setPayFormData({ ...payFormData, date: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Payment Mode</label>
-                    <select
-                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                      value={payFormData.mode}
-                      onChange={(e) => setPayFormData({ ...payFormData, mode: e.target.value })}
-                    >
-                      {['Cash', 'UPI', 'Bank Transfer', 'Cheque'].map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">Reference No.</label>
-                    <input
-                      type="text"
-                      placeholder="Optional"
-                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                      value={payFormData.reference_no}
-                      onChange={(e) => setPayFormData({ ...payFormData, reference_no: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-100 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsPayModalOpen(false)}
-                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-4 py-3 font-bold transition-all shadow-[0_4px_14px_0_rgba(5,150,105,0.39)] hover:shadow-[0_6px_20px_rgba(5,150,105,0.23)] hover:-translate-y-0.5 active:translate-y-0"
-                >
-                  Pay & Generate Receipt
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {deleteAction && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">Delete Fee Row</h3>
-              <button onClick={() => setDeleteAction(null)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                <Plus className="w-5 h-5 rotate-45 text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleDeleteSubmit} className="p-4 space-y-4">
-              <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-800">
-                <p className="font-bold">This will delete the pending fee row.</p>
-                <p className="mt-1">{deleteAction.fee.student?.name} - {deleteAction.fee.type}</p>
-                <p className="mt-1 font-mono text-xs">{deleteAction.fee.bill_no}</p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Admin Password</label>
-                <input
-                  required
-                  type="password"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  value={deleteAction.admin_password}
-                  onChange={(e) => setDeleteAction((current) => current ? { ...current, admin_password: e.target.value } : current)}
-                  placeholder="Confirm admin password"
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setDeleteAction(null)}
-                  className="flex-1 rounded-xl bg-slate-100 px-4 py-2.5 font-bold text-slate-700 transition-colors hover:bg-slate-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 font-bold text-white shadow-lg shadow-rose-200 transition-all hover:bg-rose-700"
-                >
-                  Delete
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {notice && (
+      {notice ? (
         <MessageDialog
           title={notice.title}
           message={notice.message}
           tone={notice.tone}
           onClose={() => setNotice(null)}
         />
-      )}
+      ) : null}
     </div>
   );
 }

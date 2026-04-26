@@ -38,11 +38,10 @@ export default function Attendance() {
   const fetchStudents = async () => {
     if (!selectedClass) return;
     setLoading(true);
-    const res = await fetch('/api/students', {
+    const res = await fetch(`/api/students?class_id=${selectedClass}&status=active&view=summary`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     });
-    const allStudents = await res.json();
-    const filtered = allStudents.filter((s: any) => s.class_id === parseInt(selectedClass));
+    const filtered = await res.json();
     setStudents(filtered);
     
     // Initialize attendance as all present

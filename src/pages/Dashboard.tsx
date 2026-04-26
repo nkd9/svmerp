@@ -186,9 +186,9 @@ export default function Dashboard() {
         </div>
       </TableContainer>
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
+      {/* <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
         Current working model: <span className="font-semibold text-slate-900">XI Arts, XII Arts, XI Science, XII Science</span>. Promotions move from first year to second year within the same stream, and passed-out second-year students move to alumni.
-      </div>
+      </div> */}
     </div>
   );
 }

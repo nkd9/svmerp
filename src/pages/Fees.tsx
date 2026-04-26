@@ -38,69 +38,9 @@ const getFeeSortTime = (fee: any) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const OLD_DUE_LEDGER_TYPES = new Set(['Coaching Fee', 'Food Fee', 'Hostel Fee', 'Transport Fee', 'Old Due Collection']);
-const AUTO_CURRENT_FEE_REFERENCE = 'Auto-created from student fee setup';
-
-const getFeeCategory = (value?: string) => {
-  const type = String(value || '').toLowerCase();
-  if (type.includes('old due')) return 'old';
-  if (type.includes('admission')) return 'admission';
-  if (type.includes('coaching') || type.includes('tuition')) return 'coaching';
-  if (type.includes('transport')) return 'transport';
-  if (type.includes('entrance')) return 'entrance';
-  if (type.includes('food')) return 'fooding';
-  if (type.includes('hostel')) return 'hostel';
-  return 'other';
-};
-
-const getAcademicSessionStartYear = (value?: string) => {
-  const match = /^(\d{4})-(?:\d{2}|\d{4})$/.exec(String(value || '').trim());
-  return match ? Number(match[1]) : 0;
-};
-
-const getCollegeYearRank = (className?: string) => {
-  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
-  if (/\b(XI|1ST YEAR|FIRST YEAR)\b/.test(normalized)) return 1;
-  if (/\b(XII|2ND YEAR|SECOND YEAR)\b/.test(normalized)) return 2;
-  return 0;
-};
-
-const getCollegeStreamName = (className?: string) => {
-  const normalized = String(className || '').trim().toUpperCase().replace(/\s+/g, ' ');
-  if (normalized.includes('ARTS')) return 'ARTS';
-  if (normalized.includes('SC') || normalized.includes('SCIENCE')) return 'SCIENCE';
-  return '';
-};
-
-const isOlderAcademicBucket = (fee: any, student: any) => {
-  const feeYear = getAcademicSessionStartYear(fee?.academic_session);
-  const studentYear = getAcademicSessionStartYear(student?.session);
-  if (feeYear && studentYear && feeYear < studentYear) return true;
-  if (feeYear && studentYear && feeYear > studentYear) return false;
-
-  const feeRank = getCollegeYearRank(fee?.class_name);
-  const studentRank = getCollegeYearRank(student?.class_name);
-  const feeStream = getCollegeStreamName(fee?.class_name);
-  const studentStream = getCollegeStreamName(student?.class_name);
-
-  if (feeRank && studentRank) {
-    if (feeStream && studentStream && feeStream === studentStream) return feeRank < studentRank;
-    return feeRank < studentRank;
-  }
-
-  return false;
-};
-
-const getFeePaymentStage = (fee: any, student: any): 'old' | 'admission' | 'other' => {
-  const category = getFeeCategory(fee?.type);
-  if (category === 'old') return 'old';
-  if (student && isOlderAcademicBucket(fee, student)) return 'old';
-
-  const isLegacyOldDueLedger =
-    OLD_DUE_LEDGER_TYPES.has(String(fee?.type || '')) &&
-    String(fee?.reference_no || '') !== AUTO_CURRENT_FEE_REFERENCE;
-  if (category !== 'admission' && isLegacyOldDueLedger) return 'old';
-  if (category === 'admission') return 'admission';
+const getFeePaymentStage = (fee: any): 'old' | 'admission' | 'other' => {
+  const stage = String(fee?.payment_stage || '').toLowerCase();
+  if (stage === 'old' || stage === 'admission') return stage;
   return 'other';
 };
 
@@ -157,7 +97,7 @@ export default function Fees() {
     const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
     const [feesRes, studentsRes, ledgersRes] = await Promise.all([
       fetch('/api/fees', { headers }),
-      fetch('/api/students', { headers }),
+      fetch('/api/students?status=active&limit=500', { headers }),
       fetch('/api/fee-ledgers', { headers })
     ]);
     const feesData = await feesRes.json();
@@ -384,10 +324,10 @@ export default function Fees() {
     : [];
   const selectedPendingFee = selectedStudentPendingFees.find((fee) => String(fee.id) === selectedPendingFeeId) || null;
   const selectedPendingFees = selectedStudentPendingFees.filter((fee) => selectedPendingFeeIds.includes(String(fee.id)));
-  const selectedPaymentStages = new Set(selectedPendingFees.map((fee) => getFeePaymentStage(fee, selectedStudent)));
+  const selectedPaymentStages = new Set(selectedPendingFees.map((fee) => getFeePaymentStage(fee)));
   const selectedPendingAmount = selectedPendingFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
-  const oldDuePendingFees = selectedStudentPendingFees.filter((fee) => getFeePaymentStage(fee, selectedStudent) === 'old');
-  const admissionPendingFees = selectedStudentPendingFees.filter((fee) => getFeePaymentStage(fee, selectedStudent) === 'admission');
+  const oldDuePendingFees = selectedStudentPendingFees.filter((fee) => getFeePaymentStage(fee) === 'old');
+  const admissionPendingFees = selectedStudentPendingFees.filter((fee) => getFeePaymentStage(fee) === 'admission');
   const blockingOldDue = oldDuePendingFees[0] || null;
   const blockingAdmissionFee = admissionPendingFees[0] || null;
   const canCollectOtherFee = Boolean(selectedStudent && !blockingOldDue && !blockingAdmissionFee);
@@ -451,8 +391,8 @@ export default function Fees() {
     const pendingFeesForStudent = feesSource
       .filter((fee) => fee.student_id === student?.id && fee.status === 'pending')
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const pendingOldDue = pendingFeesForStudent.find((fee) => getFeePaymentStage(fee, student) === 'old');
-    const pendingAdmission = pendingFeesForStudent.find((fee) => getFeePaymentStage(fee, student) === 'admission');
+    const pendingOldDue = pendingFeesForStudent.find((fee) => getFeePaymentStage(fee) === 'old');
+    const pendingAdmission = pendingFeesForStudent.find((fee) => getFeePaymentStage(fee) === 'admission');
     const firstPendingFee = pendingFeesForStudent[0];
     const initialFee = pendingOldDue || pendingAdmission || firstPendingFee;
     
@@ -519,7 +459,7 @@ export default function Fees() {
 
   const togglePendingFee = (fee: any) => {
     const feeId = String(fee.id);
-    const stage = getFeePaymentStage(fee, selectedStudent);
+    const stage = getFeePaymentStage(fee);
     if (stage === 'old' || stage === 'admission' || blockingAdmissionFee) {
       handlePendingFeeChange(feeId);
       return;
@@ -1072,7 +1012,7 @@ export default function Fees() {
                       {allowedPendingFees.map((fee) => {
                         const feeId = String(fee.id);
                         const checked = selectedPendingFeeIds.includes(feeId);
-                        const stage = getFeePaymentStage(fee, selectedStudent);
+                        const stage = getFeePaymentStage(fee);
                         const singleOnly = stage === 'admission' || stage === 'old' || Boolean(blockingAdmissionFee);
                         return (
                           <label

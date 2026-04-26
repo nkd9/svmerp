@@ -11,7 +11,15 @@
     "start": "NODE_ENV=production tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "old-erp:inventory": "tsx scripts/oldErpMigration.ts inventory",
+    "old-erp:students": "tsx scripts/oldErpMigration.ts students",
+    "old-erp:transactions": "tsx scripts/oldErpMigration.ts transactions",
+    "old-erp:old-due": "tsx scripts/oldErpMigration.ts old-due",
+    "old-erp:admission-due": "tsx scripts/oldErpMigration.ts admission-due",
+    "old-erp:installment-due": "tsx scripts/oldErpMigration.ts installment-due",
+    "old-erp:import:dry-run": "tsx scripts/importOldErpToMongo.ts dry-run",
+    "old-erp:import": "tsx scripts/importOldErpToMongo.ts import"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

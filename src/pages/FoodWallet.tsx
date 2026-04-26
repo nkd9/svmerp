@@ -13,13 +13,23 @@ export default function FoodWallet() {
   const [balance, setBalance] = useState(0);
   const [topupAmount, setTopupAmount] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
 
   useEffect(() => {
     fetchStudents();
-  }, []);
+  }, [studentSearch]);
 
   const fetchStudents = async () => {
-    const res = await fetch('/api/students', {
+    const searchParams = new URLSearchParams({
+      status: 'active',
+      view: 'summary',
+      limit: '100',
+    });
+    if (studentSearch.trim()) {
+      searchParams.set('search', studentSearch.trim());
+    }
+
+    const res = await fetch(`/api/students?${searchParams.toString()}`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     });
     setStudents(await res.json());
@@ -87,7 +97,13 @@ export default function FoodWallet() {
           <div className="p-4 border-b border-slate-100">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input type="text" placeholder="Search student..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg text-sm" />
+              <input
+                type="text"
+                placeholder="Search student..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg text-sm"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+              />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
