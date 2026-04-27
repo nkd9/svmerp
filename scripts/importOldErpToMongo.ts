@@ -214,6 +214,51 @@ function normalizePhone(value: unknown) {
   return normalizeText(value).replace(/[^\d]/g, "");
 }
 
+function normalizeLegacyRegNo(value: unknown) {
+  const raw = normalizeUpper(value).replace(/[^A-Z0-9]/g, "");
+  if (!raw) return "";
+  if (!/^(?:ID)?[A-Z]{1,5}\d{3,}$/.test(raw)) {
+    return "";
+  }
+  if (/^ID[A-Z]{2,}\d+$/.test(raw)) {
+    return raw.slice(2);
+  }
+  return raw;
+}
+
+function extractLegacyRegNoFromText(value: unknown) {
+  const raw = normalizeUpper(value);
+  if (!raw) return "";
+  const keywordMatch = raw.match(/(?:REGD\s*NO|REGDNO|FROM\s+ID|ID)\s*[:#-]?\s*([A-Z]{1,5}\d{3,})\b/);
+  if (keywordMatch) {
+    return normalizeLegacyRegNo(keywordMatch[1]);
+  }
+  const directWordMatch = raw.match(/\b([A-Z]{1,5}\d{3,})\b/);
+  if (directWordMatch) {
+    return normalizeLegacyRegNo(directWordMatch[1]);
+  }
+  const compact = raw.replace(/[^A-Z0-9]/g, "");
+  const prefixedMatch = compact.match(/ID([A-Z]{1,5}\d{3,})$/);
+  if (prefixedMatch) {
+    return normalizeLegacyRegNo(prefixedMatch[1]);
+  }
+  const directMatch = compact.match(/([A-Z]{1,5}\d{3,})$/);
+  if (directMatch) {
+    return normalizeLegacyRegNo(directMatch[1]);
+  }
+  return "";
+}
+
+function resolveLegacyRegNo(...values: unknown[]) {
+  for (const value of values) {
+    const direct = normalizeLegacyRegNo(value);
+    if (direct) return direct;
+    const extracted = extractLegacyRegNoFromText(value);
+    if (extracted) return extracted;
+  }
+  return "";
+}
+
 function normalizeYesNo(value: unknown, fallback = "No") {
   const raw = normalizeText(value).toLowerCase();
   if (raw === "yes" || raw === "y") return "Yes";
@@ -354,6 +399,13 @@ function buildStudentSeedMap(
   admissionDue: SnapshotAdmissionDue,
   installmentDue: SnapshotInstallmentDue,
 ) {
+  const activeStudentRegNos = new Set<string>(
+    [
+      ...students.categories.flatMap((category) => category.rows.map((row) => resolveLegacyRegNo(row.reg_no, row.legacy_student_id))),
+      ...installmentDue.rows.map((row) => resolveLegacyRegNo(row.reg_no)),
+    ].filter(Boolean),
+  );
+
   const seeds = new Map<
     string,
     {
@@ -411,7 +463,7 @@ function buildStudentSeedMap(
         hostel_required: "No",
         rfid_card_no: "",
         photo_url: "",
-        status: "active",
+        status: activeStudentRegNos.has(normalizedRegNo) ? "active" : "alumni",
         hasFood: false,
         hasTransport: false,
         hasHostel: false,
@@ -424,7 +476,7 @@ function buildStudentSeedMap(
 
   for (const category of students.categories) {
     for (const row of category.rows) {
-      const seed = ensureSeed(row.reg_no || row.legacy_student_id);
+      const seed = ensureSeed(resolveLegacyRegNo(row.reg_no, row.legacy_student_id));
       if (!seed) continue;
       seed.name ||= normalizeText(row.name);
       seed.father_name ||= normalizeText(row.father_name);
@@ -461,7 +513,7 @@ function buildStudentSeedMap(
   };
 
   for (const row of transactions.rows) {
-    const seed = ensureSeed(row.reg_no);
+    const seed = ensureSeed(resolveLegacyRegNo(row.reg_no, row.description));
     if (!seed) continue;
     seed.name ||= normalizeText(row.name);
     seed.phone ||= "";
@@ -471,7 +523,7 @@ function buildStudentSeedMap(
   }
 
   for (const row of oldDue.rows) {
-    const seed = ensureSeed(row.reg_no);
+    const seed = ensureSeed(resolveLegacyRegNo(row.reg_no, row.legacy_student_id));
     if (!seed) continue;
     seed.name ||= normalizeText(row.name);
     seed.phone ||= normalizePhone(row.phone);
@@ -481,7 +533,7 @@ function buildStudentSeedMap(
   }
 
   for (const row of admissionDue.rows) {
-    const seed = ensureSeed(row.reg_no);
+    const seed = ensureSeed(resolveLegacyRegNo(row.reg_no, row.name, row.father_name));
     if (!seed) continue;
     seed.name ||= normalizeText(row.name);
     seed.father_name ||= normalizeText(row.father_name);
@@ -492,7 +544,7 @@ function buildStudentSeedMap(
   }
 
   for (const row of installmentDue.rows) {
-    const seed = ensureSeed(row.reg_no);
+    const seed = ensureSeed(resolveLegacyRegNo(row.reg_no));
     if (!seed) continue;
     seed.name ||= normalizeText(row.name);
     seed.phone ||= normalizePhone(row.parent_phone);
@@ -638,7 +690,7 @@ function buildPaidFeeDocs(transactions: SnapshotTransactions, studentByRegNo: Ma
   const transactionDocs: any[] = [];
 
   for (const row of transactions.rows) {
-    const regNo = normalizeUpper(row.reg_no);
+    const regNo = resolveLegacyRegNo(row.reg_no, row.description);
     const student = studentByRegNo.get(regNo);
     if (!student) {
       continue;
@@ -690,7 +742,7 @@ function appendPendingFeeDocs(
   let nextFeeId = nextFeeIdStart;
 
   for (const row of oldDue.rows) {
-    const student = studentByRegNo.get(normalizeUpper(row.reg_no));
+    const student = studentByRegNo.get(resolveLegacyRegNo(row.reg_no, row.legacy_student_id));
     if (!student) continue;
     feeDocs.push({
       id: nextFeeId++,
@@ -710,7 +762,7 @@ function appendPendingFeeDocs(
   }
 
   for (const row of admissionDue.rows) {
-    const student = studentByRegNo.get(normalizeUpper(row.reg_no));
+    const student = studentByRegNo.get(resolveLegacyRegNo(row.reg_no));
     if (!student) continue;
     feeDocs.push({
       id: nextFeeId++,
@@ -730,7 +782,7 @@ function appendPendingFeeDocs(
   }
 
   for (const row of installmentDue.rows) {
-    const student = studentByRegNo.get(normalizeUpper(row.reg_no));
+    const student = studentByRegNo.get(resolveLegacyRegNo(row.reg_no));
     if (!student) continue;
     feeDocs.push({
       id: nextFeeId++,

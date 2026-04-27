@@ -853,7 +853,7 @@ async function startServer() {
 
   app.get("/api/stats", authenticateToken, async (_req, res) => {
     const today = dateString();
-    const [totalStudents, activeStudents, todayFeesAgg, pendingFeesAgg, hostelStudents, recentReceipts, students, classes] =
+    const [totalStudents, activeStudents, todayFeesAgg, pendingFeeRows, hostelStudents, recentReceipts, students, classes] =
       await Promise.all([
         Student.countDocuments(),
         Student.countDocuments({ status: "active" }),
@@ -861,10 +861,7 @@ async function startServer() {
           { $match: { date: today } },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]),
-        Fee.aggregate([
-          { $match: { status: "pending" } },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
+        Fee.find({ status: "pending" }).lean(),
         HostelAllotment.countDocuments(),
         Fee.find({ status: { $in: ["paid", "cancelled"] } }).sort({ date: -1, id: -1 }).limit(5).lean(),
         Student.find().lean(),
@@ -873,12 +870,19 @@ async function startServer() {
 
     const studentMap = new Map<number, any>(students.map((student) => [student.id, student]));
     const classMap = new Map<number, string>(classes.map((item) => [item.id, item.name]));
+    const pendingFeesTotal = pendingFeeRows.reduce((sum, fee) => {
+      const student = studentMap.get(Number(fee.student_id));
+      if (!student || String(student.status || "").toLowerCase() !== "active") {
+        return sum;
+      }
+      return sum + Number(fee.amount || 0);
+    }, 0);
 
     res.json({
       totalStudents,
       activeStudents,
       todayFees: todayFeesAgg[0]?.total || 0,
-      pendingFees: pendingFeesAgg[0]?.total || 0,
+      pendingFees: pendingFeesTotal,
       hostelStudents,
       recentTransactions: recentReceipts.map((item) => {
         const student = studentMap.get(item.student_id);
